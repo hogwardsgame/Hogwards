@@ -1,13 +1,12 @@
 # game/battle_engine.py
 
 import random
-from typing import Dict, Any, Tuple, List, Optional
-
+from typing import Optional, List
 from game.spells import get_spell, calculate_damage
 
 
 # ─────────────────────────────────────────────
-# 🧠 СОСТОЯНИЕ БОЯ
+# 🧠 БОЙ
 # ─────────────────────────────────────────────
 
 class BattleState:
@@ -31,13 +30,37 @@ class BattleState:
         }
 
         self.turn = 1
-        self.history: List[dict] = []
+        self.history = []
         self.finished = False
-        self.winner_id: Optional[int] = None
+        self.winner_id = None
 
 
 # ─────────────────────────────────────────────
-# ⚔️ ОСНОВНОЙ ДВИЖОК БОЯ
+# ⚙️ УТИЛИТЫ СТАТУСОВ
+# ─────────────────────────────────────────────
+
+def has_status(state: BattleState, user_id: int, status: str) -> bool:
+    return any(status in s for s in state.status[user_id])
+
+
+def apply_burn(state: BattleState, user_id: int):
+    for s in state.status[user_id]:
+        if s.startswith("burn:"):
+            dmg = int(s.split(":")[1])
+            state.hp[user_id] -= dmg
+            return dmg
+    return 0
+
+
+def clear_one_time_statuses(state: BattleState, user_id: int):
+    state.status[user_id] = [
+        s for s in state.status[user_id]
+        if s != "stun"
+    ]
+
+
+# ─────────────────────────────────────────────
+# ⚔️ ХОД БОЯ
 # ─────────────────────────────────────────────
 
 def apply_spell(state: BattleState, attacker_id: int, defender_id: int, spell_id: str):
@@ -46,12 +69,16 @@ def apply_spell(state: BattleState, attacker_id: int, defender_id: int, spell_id
     if not spell:
         return {"error": "Unknown spell"}
 
-    # ─────────────────────────────
-    # Проверка маны
-    # ─────────────────────────────
+    # ───────────── МАНА ─────────────
     if state.mana[attacker_id] < spell.mana_cost:
         return {"error": "Not enough mana"}
 
+    # ───────────── СТАН ─────────────
+    if has_status(state, attacker_id, "stun"):
+        state.status[attacker_id].remove("stun")
+        return {"error": "You are stunned"}
+
+    # ───────────── МАНА СПИСАНИЕ ─────────────
     state.mana[attacker_id] -= spell.mana_cost
 
     log = {
@@ -62,75 +89,77 @@ def apply_spell(state: BattleState, attacker_id: int, defender_id: int, spell_id
         "events": []
     }
 
-    # ─────────────────────────────
-    # ХИЛ
-    # ─────────────────────────────
+    # ───────────── БЕРН УРОН ─────────────
+    burn_damage = apply_burn(state, attacker_id)
+    if burn_damage:
+        log["events"].append(f"burn_self:{burn_damage}")
+
+    burn_def = apply_burn(state, defender_id)
+    if burn_def:
+        log["events"].append(f"burn_enemy:{burn_def}")
+
+    # ───────────── ЛЕЧЕНИЕ ─────────────
     if spell.heal > 0:
-        heal = spell.heal
-        state.hp[attacker_id] += heal
-        log["events"].append(f"heal +{heal}")
+        state.hp[attacker_id] += spell.heal
+        log["events"].append(f"heal +{spell.heal}")
         state.history.append(log)
         return log
 
-    # ─────────────────────────────
-    # УРОН
-    # ─────────────────────────────
-    damage = calculate_damage(
+    # ───────────── УРОН ─────────────
+    attacker_stats = state.p1 if attacker_id == state.p1["user_id"] else state.p2
+    defender_stats = state.p1 if defender_id == state.p1["user_id"] else state.p2
+
+    base_damage = calculate_damage(
         spell_id,
-        attacker_attack=10,   # позже заменим на статы игрока
-        target_defense=5
+        attacker_stats["attack"],
+        defender_stats["defense"]
     )
 
-    state.hp[defender_id] -= damage
-    log["events"].append(f"damage {damage}")
+    # защита (Protego)
+    if has_status(state, defender_id, "shield"):
+        base_damage = int(base_damage * 0.6)
 
-    # ─────────────────────────────
-    # СТАТУСЫ
-    # ─────────────────────────────
+    state.hp[defender_id] -= base_damage
+    log["events"].append(f"damage:{base_damage}")
 
-    # оглушение
+    # ───────────── ЭФФЕКТЫ ─────────────
+
     if spell.stun_chance and random.random() < spell.stun_chance:
         state.status[defender_id].append("stun")
-        log["events"].append("stun applied")
+        log["events"].append("stun")
 
-    # горение
     if spell.burn:
         state.status[defender_id].append(f"burn:{spell.burn}")
-        log["events"].append(f"burn {spell.burn}")
+        log["events"].append("burn")
 
-    # заморозка
     if spell.freeze:
         state.status[defender_id].append("freeze")
-        log["events"].append("freeze applied")
+        log["events"].append("freeze")
 
-    # путаница
     if spell.confusion:
         state.status[defender_id].append("confusion")
-        log["events"].append("confusion applied")
+        log["events"].append("confusion")
 
-    # ─────────────────────────────
-    # ПРОВЕРКА ПОБЕДЫ
-    # ─────────────────────────────
+    # ───────────── ПРОВЕРКА ПОБЕДЫ ─────────────
     if state.hp[defender_id] <= 0:
         state.finished = True
         state.winner_id = attacker_id
         log["events"].append("victory")
 
     state.history.append(log)
+
+    clear_one_time_statuses(state, attacker_id)
+
     return log
 
 
 # ─────────────────────────────────────────────
-# 🔁 СЛЕДУЮЩИЙ ХОД
+# 🔁 ХОД
 # ─────────────────────────────────────────────
 
 def next_turn(state: BattleState):
     state.turn += 1
 
-
-# ─────────────────────────────────────────────
-# 🏁 ПРОВЕРКА ОКОНЧАНИЯ БОЯ
-# ─────────────────────────────────────────────
 
 def is_finished(state: BattleState) -> bool:
     return state.finished
@@ -139,10 +168,6 @@ def is_finished(state: BattleState) -> bool:
 def get_winner(state: BattleState):
     return state.winner_id
 
-
-# ─────────────────────────────────────────────
-# 📜 ИСТОРИЯ БОЯ
-# ─────────────────────────────────────────────
 
 def get_history(state: BattleState):
     return state.history
