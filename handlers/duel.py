@@ -1,6 +1,8 @@
 # handlers/duel.py
 
 import random
+import time
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
@@ -18,10 +20,12 @@ from game.spells import SPELLS
 
 
 # ─────────────────────────────────────────────
-# 🧠 БОИ В ПАМЯТИ
+# 🧠 STORAGE БОЕВ
 # ─────────────────────────────────────────────
 
 BATTLES = {}
+LAST_ACTION = {}
+COOLDOWN = 1.0
 
 
 # ─────────────────────────────────────────────
@@ -41,13 +45,13 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     await update.message.reply_text(
-        "⚔️ Добро пожаловать на дуэльную арену",
+        "⚔️ Дуэльная арена",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
 # ─────────────────────────────────────────────
-# 🎯 ПОИСК СОПЕРНИКА
+# 🎯 FIND OPPONENT
 # ─────────────────────────────────────────────
 
 async def duel_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -80,7 +84,7 @@ async def duel_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
-# ⚔️ UI БОЯ
+# ⚔️ RENDER UI
 # ─────────────────────────────────────────────
 
 async def render_battle(query, battle_id, battle: BattleState):
@@ -101,9 +105,9 @@ async def render_battle(query, battle_id, battle: BattleState):
 ❤️ HP: {battle.hp[p1['user_id']]} | {battle.hp[p2['user_id']]}
 💧 MP: {battle.mana[p1['user_id']]} | {battle.mana[p2['user_id']]}
 
-🎯 Ход: {battle.turn}
+⚡ Ход: {battle.turn}
 
-⚡ Сейчас ходит: {current}
+🎯 Сейчас ходит: {current}
 
 🔥 Статусы:
 - {p1['wizard_name']}: {status(p1['user_id'])}
@@ -112,22 +116,16 @@ async def render_battle(query, battle_id, battle: BattleState):
 
     keyboard = []
 
-    # ───────────── ЗАКЛИНАНИЯ ─────────────
     for spell_id, spell in SPELLS.items():
-
         keyboard.append([
             InlineKeyboardButton(
-                f"{spell.name} ({spell.mana_cost})",
+                f"{spell.name}",
                 callback_data=f"cast:{battle_id}:{spell_id}"
             )
         ])
 
-    # ───────────── ЗАЩИТА ─────────────
     keyboard.append([
-        InlineKeyboardButton(
-            "🛡 Protego",
-            callback_data=f"cast:{battle_id}:protego"
-        )
+        InlineKeyboardButton("🛡 Protego", callback_data=f"cast:{battle_id}:protego")
     ])
 
     await query.edit_message_text(
@@ -137,7 +135,7 @@ async def render_battle(query, battle_id, battle: BattleState):
 
 
 # ─────────────────────────────────────────────
-# 🔮 ХОД
+# 🔮 CAST
 # ─────────────────────────────────────────────
 
 async def cast_spell(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -147,22 +145,30 @@ async def cast_spell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, battle_id, spell_id = query.data.split(":")
 
     battle = BATTLES.get(battle_id)
+
     if not battle:
         await query.edit_message_text("Бой не найден.")
         return
 
     attacker_id = query.from_user.id
 
-    # ───────────── проверка участника ─────────────
+    # ───── проверка игрока ─────
     if attacker_id not in [battle.p1["user_id"], battle.p2["user_id"]]:
-        await query.answer("Ты не в этом бою", show_alert=True)
+        await query.answer("Ты не участвуешь", show_alert=True)
         return
 
-    # ───────────── проверка хода ─────────────
+    # ───── анти-спам ─────
+    now = time.time()
+    if now - LAST_ACTION.get(attacker_id, 0) < COOLDOWN:
+        await query.answer("Слишком быстро!", show_alert=True)
+        return
+    LAST_ACTION[attacker_id] = now
+
+    # ───── очередь хода ─────
     current = get_current_player(battle)
 
     if attacker_id != current:
-        await query.answer("Сейчас не твой ход", show_alert=True)
+        await query.answer("Не твой ход", show_alert=True)
         return
 
     defender_id = (
@@ -171,7 +177,6 @@ async def cast_spell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else battle.p1["user_id"]
     )
 
-    # ───────────── применение заклинания ─────────────
     result = apply_spell(battle, attacker_id, defender_id, spell_id)
 
     if "error" in result:
@@ -180,21 +185,18 @@ async def cast_spell(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     next_turn(battle)
 
-    # ───────────── победа ─────────────
     if is_finished(battle):
         winner = get_winner(battle)
         reward(winner)
 
-        await query.edit_message_text(
-            f"🏆 Победитель: {winner}"
-        )
+        await query.edit_message_text(f"🏆 Победитель: {winner}")
         return
 
     await render_battle(query, battle_id, battle)
 
 
 # ─────────────────────────────────────────────
-# 🏆 НАГРАДЫ
+# 🏆 REWARD
 # ─────────────────────────────────────────────
 
 def reward(user_id: int):
@@ -206,7 +208,7 @@ def reward(user_id: int):
 
 
 # ─────────────────────────────────────────────
-# 🔗 REGISTRATION
+# 🔗 REGISTER HANDLERS
 # ─────────────────────────────────────────────
 
 def register_duel_handlers(app):
