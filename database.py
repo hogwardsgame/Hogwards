@@ -1,23 +1,59 @@
-import asyncpg
-import os
+import psycopg2
+import psycopg2.extras
+from psycopg2.pool import ThreadedConnectionPool
+from contextlib import contextmanager
 from config import DATABASE_URL
+import logging
+
+logger = logging.getLogger(__name__)
+
+_pool: ThreadedConnectionPool | None = None
 
 
-_pool: asyncpg.Pool | None = None
-
-
-async def get_pool() -> asyncpg.Pool:
+def get_pool() -> ThreadedConnectionPool:
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+        _pool = ThreadedConnectionPool(2, 10, DATABASE_URL)
     return _pool
 
 
-async def close_pool():
-    global _pool
-    if _pool:
-        await _pool.close()
-        _pool = None
+@contextmanager
+def get_conn():
+    pool = get_pool()
+    conn = pool.getconn()
+    conn.autocommit = False
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+
+
+def fetchrow(conn, sql, *args):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(sql, args)
+        return cur.fetchone()
+
+
+def fetchall(conn, sql, *args):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(sql, args)
+        return cur.fetchall()
+
+
+def fetchval(conn, sql, *args):
+    with conn.cursor() as cur:
+        cur.execute(sql, args)
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def execute(conn, sql, *args):
+    with conn.cursor() as cur:
+        cur.execute(sql, args)
 
 
 # ─── Schema ───────────────────────────────────────────────────────────────────
@@ -213,137 +249,134 @@ ON CONFLICT DO NOTHING;
 """
 
 
-async def init_db():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(CREATE_TABLES_SQL)
+def init_db():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(CREATE_TABLES_SQL)
+    logger.info("Database initialised.")
 
 
 # ─── User helpers ─────────────────────────────────────────────────────────────
 
-async def get_user(user_id: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        return await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user_id)
+def get_user(user_id: int):
+    with get_conn() as conn:
+        return fetchrow(conn, "SELECT * FROM users WHERE user_id = %s", user_id)
 
 
-async def user_exists(user_id: int) -> bool:
-    return await get_user(user_id) is not None
+def user_exists(user_id: int) -> bool:
+    return get_user(user_id) is not None
 
 
-async def wizard_name_taken(name: str) -> bool:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT 1 FROM users WHERE LOWER(wizard_name) = LOWER($1)", name)
+def wizard_name_taken(name: str) -> bool:
+    with get_conn() as conn:
+        row = fetchrow(conn, "SELECT 1 FROM users WHERE LOWER(wizard_name) = LOWER(%s)", name)
         return row is not None
 
 
-async def create_user(user_id: int, username: str, wizard_name: str, house: str, lang: str, starter_spell: str):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("""
-                INSERT INTO users (user_id, username, wizard_name, house, lang, gold, hp, max_hp, mana, max_mana)
-                VALUES ($1, $2, $3, $4, $5, 100, 100, 100, 50, 50)
-            """, user_id, username, wizard_name, house, lang)
-
-            await conn.execute("""
-                INSERT INTO user_stats (user_id) VALUES ($1)
-            """, user_id)
-
-            await conn.execute("""
-                INSERT INTO user_spells (user_id, spell_id) VALUES ($1, $2)
-            """, user_id, starter_spell)
+def create_user(user_id: int, username: str, wizard_name: str, house: str, lang: str, starter_spell: str):
+    with get_conn() as conn:
+        execute(conn, """
+            INSERT INTO users (user_id, username, wizard_name, house, lang, gold, hp, max_hp, mana, max_mana)
+            VALUES (%s, %s, %s, %s, %s, 100, 100, 100, 50, 50)
+        """, user_id, username, wizard_name, house, lang)
+        execute(conn, "INSERT INTO user_stats (user_id) VALUES (%s)", user_id)
+        execute(conn, "INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s)", user_id, starter_spell)
 
 
-async def set_user_lang(user_id: int, lang: str):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("UPDATE users SET lang = $1 WHERE user_id = $2", lang, user_id)
+def set_user_lang(user_id: int, lang: str):
+    with get_conn() as conn:
+        execute(conn, "UPDATE users SET lang = %s WHERE user_id = %s", lang, user_id)
 
 
-async def get_user_spells(user_id: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        return await conn.fetch("SELECT spell_id FROM user_spells WHERE user_id = $1", user_id)
+def get_user_spells(user_id: int):
+    with get_conn() as conn:
+        return fetchall(conn, "SELECT spell_id FROM user_spells WHERE user_id = %s", user_id)
 
 
-async def get_house_counts() -> dict:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT house, COUNT(*) as cnt FROM users GROUP BY house")
+def get_house_counts() -> dict:
+    with get_conn() as conn:
+        rows = fetchall(conn, "SELECT house, COUNT(*) as cnt FROM users GROUP BY house")
         return {r["house"]: r["cnt"] for r in rows}
 
 
-async def get_house_points():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        return await conn.fetch("SELECT house, points FROM house_points ORDER BY points DESC")
+def get_house_points():
+    with get_conn() as conn:
+        return fetchall(conn, "SELECT house, points FROM house_points ORDER BY points DESC")
 
 
-async def add_xp(user_id: int, xp: int):
+def get_user_stats(user_id: int):
+    with get_conn() as conn:
+        return fetchrow(conn, "SELECT * FROM user_stats WHERE user_id = %s", user_id)
+
+
+def get_spells_count(user_id: int) -> int:
+    with get_conn() as conn:
+        return fetchval(conn, "SELECT COUNT(*) FROM user_spells WHERE user_id = %s", user_id)
+
+
+def add_xp(user_id: int, xp: int):
     """Add XP and handle level ups. Returns (new_level, leveled_up)."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        user = await conn.fetchrow("SELECT level, xp FROM users WHERE user_id = $1", user_id)
-        new_xp = user["xp"] + xp
-        level = user["level"]
+    user = get_user(user_id)
+    new_xp = user["xp"] + xp
+    level = user["level"]
+    leveled_up = False
 
-        leveled_up = False
-        while True:
-            needed = int(500 * level * (1.15 ** (level - 1)))
-            if new_xp >= needed:
-                new_xp -= needed
-                level += 1
-                leveled_up = True
-            else:
-                break
+    while True:
+        needed = int(500 * level * (1.15 ** (level - 1)))
+        if new_xp >= needed:
+            new_xp -= needed
+            level += 1
+            leveled_up = True
+        else:
+            break
 
+    with get_conn() as conn:
         if leveled_up:
-            await conn.execute("""
-                UPDATE users SET xp = $1, level = $2,
+            execute(conn, """
+                UPDATE users SET xp = %s, level = %s,
                     max_hp = max_hp + 5, hp = LEAST(hp + 5, max_hp + 5),
                     max_mana = max_mana + 3, mana = LEAST(mana + 3, max_mana + 3),
                     attack = attack + 1, defense = defense + 1
-                WHERE user_id = $3
+                WHERE user_id = %s
             """, new_xp, level, user_id)
         else:
-            await conn.execute("UPDATE users SET xp = $1 WHERE user_id = $2", new_xp, user_id)
+            execute(conn, "UPDATE users SET xp = %s WHERE user_id = %s", new_xp, user_id)
 
-        return level, leveled_up
-
-
-async def add_gold(user_id: int, amount: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("UPDATE users SET gold = gold + $1 WHERE user_id = $2", amount, user_id)
+    return level, leveled_up
 
 
-async def get_daily_limit(user_id: int, activity: str) -> int:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            f"SELECT {activity} FROM daily_limits WHERE user_id = $1 AND date = CURRENT_DATE",
+def add_gold(user_id: int, amount: int):
+    with get_conn() as conn:
+        execute(conn, "UPDATE users SET gold = gold + %s WHERE user_id = %s", amount, user_id)
+
+
+def get_daily_limit(user_id: int, activity: str) -> int:
+    with get_conn() as conn:
+        row = fetchrow(conn,
+            f"SELECT {activity} FROM daily_limits WHERE user_id = %s AND date = CURRENT_DATE",
             user_id
         )
         return row[activity] if row else 0
 
 
-async def increment_daily(user_id: int, activity: str):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(f"""
+def increment_daily(user_id: int, activity: str):
+    with get_conn() as conn:
+        execute(conn, f"""
             INSERT INTO daily_limits (user_id, date, {activity})
-            VALUES ($1, CURRENT_DATE, 1)
+            VALUES (%s, CURRENT_DATE, 1)
             ON CONFLICT (user_id, date)
             DO UPDATE SET {activity} = daily_limits.{activity} + 1
         """, user_id)
 
 
-async def get_leaderboard(limit: int = 10):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        return await conn.fetch(
-            "SELECT wizard_name, house, level, xp FROM users ORDER BY level DESC, xp DESC LIMIT $1",
+def get_leaderboard(limit: int = 10):
+    with get_conn() as conn:
+        return fetchall(conn,
+            "SELECT wizard_name, house, level, xp FROM users ORDER BY level DESC, xp DESC LIMIT %s",
             limit
         )
+
+
+def reset_house_cup_points():
+    with get_conn() as conn:
+        execute(conn, "UPDATE house_points SET points = 0")
