@@ -7,31 +7,27 @@ from utils.helpers import house_emoji, medal
 
 async def show_rating(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not await user_exists(user_id):
+    if not user_exists(user_id):
         await update.message.reply_text(t(user_id, "not_registered"))
         return
 
-    rows = await get_leaderboard(10)
+    rows = get_leaderboard(10)
     text = t(user_id, "rating_header")
     for i, row in enumerate(rows, 1):
-        emoji = house_emoji(row["house"])
         text += t(user_id, "rating_row",
-                  pos=medal(i), emoji=emoji,
-                  wizard_name=row["wizard_name"],
-                  level=row["level"]) + "\n"
-
+                  pos=medal(i), emoji=house_emoji(row["house"]),
+                  wizard_name=row["wizard_name"], level=row["level"]) + "\n"
     await update.message.reply_text(text)
 
 
 async def show_house_cup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    rows = await get_house_points()
+    rows = get_house_points()
     text = t(user_id, "house_cup_header")
     for i, row in enumerate(rows, 1):
         house = row["house"]
         text += t(user_id, "house_cup_row",
-                  pos=medal(i),
-                  emoji=house_emoji(house),
+                  pos=medal(i), emoji=house_emoji(house),
                   house=t(user_id, f"house_{house}"),
                   points=row["points"]) + "\n"
     await update.message.reply_text(text)
@@ -46,7 +42,4 @@ async def handle_rating_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def register_rating_handlers(app):
     app.add_handler(CommandHandler("rating", show_rating))
     app.add_handler(CommandHandler("housecup", show_house_cup))
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_rating_button
-    ), group=2)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rating_button), group=2)
