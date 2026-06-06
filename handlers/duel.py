@@ -1,51 +1,39 @@
 # handlers/duel.py
 
 import random
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
-from telegram.ext import ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
-from database import (
-    get_user,
-    add_xp,
-    add_gold,
-    execute,
-    get_conn
-)
-
+from database import get_user, add_xp, add_gold, get_conn
 from game.battle_engine import BattleState, apply_spell, next_turn, is_finished, get_winner
 from game.spells import SPELLS
 
 
 # ─────────────────────────────────────────────
-# 🧠 ВРЕМЕННОЕ ХРАНИЛИЩЕ БОЁВ (в памяти)
-# позже заменим на Redis или БД
+# 🧠 БОИ В ПАМЯТИ
 # ─────────────────────────────────────────────
 
 BATTLES = {}
 
 
 # ─────────────────────────────────────────────
-# ⚔️ ВЫЗОВ НА ДУЭЛЬ
+# ⚔️ /duel
 # ─────────────────────────────────────────────
 
 async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-
     user = get_user(user_id)
+
     if not user:
-        await update.message.reply_text("Ты ещё не зарегистрирован.")
+        await update.message.reply_text("Ты не зарегистрирован.")
         return
 
     keyboard = [
-        [InlineKeyboardButton("🎯 Случайный соперник", callback_data="duel_random")]
+        [InlineKeyboardButton("🎯 Найти соперника", callback_data="duel_find")]
     ]
 
     await update.message.reply_text(
-        "⚔️ Дуэльная арена\nВыбери соперника:",
+        "⚔️ Дуэльная арена\nНажми кнопку для поиска боя",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -54,72 +42,79 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🎯 ПОИСК СОПЕРНИКА
 # ─────────────────────────────────────────────
 
-async def duel_random(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def duel_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    challenger_id = query.from_user.id
+    user_id = query.from_user.id
 
     with get_conn() as conn:
-        opponent = conn.cursor()
-        opponent.execute(
+        cur = conn.cursor()
+        cur.execute(
             "SELECT * FROM users WHERE user_id != %s ORDER BY RANDOM() LIMIT 1",
-            (challenger_id,)
+            (user_id,)
         )
-        enemy = opponent.fetchone()
+        enemy = cur.fetchone()
 
     if not enemy:
-        await query.edit_message_text("Нет доступных соперников.")
+        await query.edit_message_text("Нет соперников.")
         return
 
-    # ─────────────────────────────
-    # СОЗДАЁМ БОЙ
-    # ─────────────────────────────
-
-    p1 = get_user(challenger_id)
+    p1 = get_user(user_id)
     p2 = get_user(enemy["user_id"])
 
     battle = BattleState(p1, p2)
 
-    battle_id = f"{challenger_id}_{enemy['user_id']}_{random.randint(1000,9999)}"
+    battle_id = f"{user_id}_{enemy['user_id']}_{random.randint(1000,9999)}"
     BATTLES[battle_id] = battle
 
-    # ─────────────────────────────
-    # ПЕРВЫЙ ХОД
-    # ─────────────────────────────
-
-    await send_battle_message(query, battle_id, battle)
+    await send_battle(query, battle_id, battle)
 
 
 # ─────────────────────────────────────────────
-# ⚔️ ОТПРАВКА БОЯ В TELEGRAM
+# ⚔️ ОТОБРАЖЕНИЕ БОЯ
 # ─────────────────────────────────────────────
 
-async def send_battle_message(query, battle_id, battle: BattleState):
+async def send_battle(query, battle_id, battle: BattleState):
 
-    user1 = battle.p1
-    user2 = battle.p2
+    p1 = battle.p1
+    p2 = battle.p2
+
+    def format_status(uid):
+        if not battle.status[uid]:
+            return "—"
+        return ", ".join(battle.status[uid])
 
     text = f"""
 ⚔️ ДУЭЛЬ
 
-🧙 {user1['wizard_name']} vs {user2['wizard_name']}
+🧙 {p1['wizard_name']} vs {p2['wizard_name']}
 
-❤️ {battle.hp[user1['user_id']]} HP  |  ❤️ {battle.hp[user2['user_id']]} HP
-💧 {battle.mana[user1['user_id']]} MP | 💧 {battle.mana[user2['user_id']]} MP
+❤️ HP: {battle.hp[p1['user_id']]} | {battle.hp[p2['user_id']]}
+💧 MP: {battle.mana[p1['user_id']]} | {battle.mana[p2['user_id']]}
 
-🎯 Ход: {battle.turn}
+⚡ Ход: {battle.turn}
+
+🔥 Статусы:
+- {p1['wizard_name']}: {format_status(p1['user_id'])}
+- {p2['wizard_name']}: {format_status(p2['user_id'])}
 """
 
     keyboard = []
 
-    for spell_id, spell in list(SPELLS.items())[:6]:
+    # ───────────── ЗАКЛИНАНИЯ ─────────────
+    for spell_id, spell in SPELLS.items():
         keyboard.append([
             InlineKeyboardButton(
                 f"{spell.name} ({spell.mana_cost})",
                 callback_data=f"cast:{battle_id}:{spell_id}"
             )
         ])
+
+    # ───────────── ЗАЩИТА ─────────────
+    keyboard.append([
+        InlineKeyboardButton("🛡 Протего", callback_data=f"cast:{battle_id}:protego")
+    ])
 
     await query.edit_message_text(
         text,
@@ -128,7 +123,7 @@ async def send_battle_message(query, battle_id, battle: BattleState):
 
 
 # ─────────────────────────────────────────────
-# 🔮 ИСПОЛЬЗОВАНИЕ ЗАКЛИНАНИЯ
+# 🔮 ХОД
 # ─────────────────────────────────────────────
 
 async def cast_spell(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -144,45 +139,44 @@ async def cast_spell(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     attacker_id = query.from_user.id
 
-    # определяем врага
-    if attacker_id == battle.p1["user_id"]:
-        defender_id = battle.p2["user_id"]
-    else:
-        defender_id = battle.p1["user_id"]
+    # ───────────── ПРОВЕРКА УЧАСТИЯ ─────────────
+    if attacker_id not in [battle.p1["user_id"], battle.p2["user_id"]]:
+        await query.answer("Ты не участвуешь в этом бою", show_alert=True)
+        return
 
-    # ─────────────────────────────
-    # ХОД
-    # ─────────────────────────────
+    defender_id = (
+        battle.p2["user_id"]
+        if attacker_id == battle.p1["user_id"]
+        else battle.p1["user_id"]
+    )
 
+    # ───────────── ХОД ─────────────
     result = apply_spell(battle, attacker_id, defender_id, spell_id)
 
     if "error" in result:
         await query.answer(result["error"], show_alert=True)
         return
 
-    # следующий ход
     next_turn(battle)
 
-    # победа?
+    # ───────────── ПОБЕДА ─────────────
     if is_finished(battle):
-        winner_id = get_winner(battle)
-
-        reward_winner(winner_id)
+        winner = get_winner(battle)
+        reward(winner)
 
         await query.edit_message_text(
-            f"🏆 Дуэль завершена!\nПобедитель: {winner_id}"
+            f"🏆 Победитель: {winner}"
         )
         return
 
-    # обновляем экран
-    await send_battle_message(query, battle_id, battle)
+    await send_battle(query, battle_id, battle)
 
 
 # ─────────────────────────────────────────────
-# 🏆 НАГРАДЫ
+# 🏆 НАГРАДА
 # ─────────────────────────────────────────────
 
-def reward_winner(user_id: int):
+def reward(user_id: int):
     xp = random.randint(50, 150)
     gold = random.randint(20, 80)
 
@@ -191,12 +185,10 @@ def reward_winner(user_id: int):
 
 
 # ─────────────────────────────────────────────
-# 🔗 РЕГИСТРАЦИЯ HANDLER'ОВ
+# 🔗 РЕГИСТРАЦИЯ
 # ─────────────────────────────────────────────
 
 def register_duel_handlers(app):
-    from telegram.ext import CallbackQueryHandler, CommandHandler
-
     app.add_handler(CommandHandler("duel", duel_command))
-    app.add_handler(CallbackQueryHandler(duel_random, pattern="^duel_random$"))
+    app.add_handler(CallbackQueryHandler(duel_find, pattern="^duel_find$"))
     app.add_handler(CallbackQueryHandler(cast_spell, pattern="^cast:"))
