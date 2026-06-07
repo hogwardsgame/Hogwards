@@ -175,7 +175,6 @@ async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     set_cached_lang(user_id, lang)
     set_user_lang(user_id, lang)
 
-    # Build a thank-you message with a hint to /start in the new language
     messages = {
         "ru": "✅ Язык изменён!\n\nНажми /start чтобы обновить меню.",
         "en": "✅ Language changed!\n\nPress /start to refresh the menu.",
@@ -189,6 +188,10 @@ async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 def get_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
+        # name обязателен при использовании PicklePersistence —
+        # именно по нему persistence сохраняет/восстанавливает состояния.
+        name="registration",
+        persistent=True,
         entry_points=[CommandHandler("start", cmd_start)],
         states={
             CHOOSE_LANG: [CallbackQueryHandler(cb_choose_lang, pattern=r"^lang:")],
