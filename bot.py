@@ -11,7 +11,7 @@ threading.Thread(target=lambda: HTTPServer(('0.0.0.0', 8080), Handler).serve_for
 
 import logging
 from telegram import Update
-from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, filters, ContextTypes
 from config import BOT_TOKEN
 from database import init_db, get_conn, fetchall
 from utils.scheduler import setup_scheduler
@@ -38,37 +38,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def maintenance_message_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Block text messages during maintenance (except admins).
-    Returns True to stop further processing, None to pass through.
+async def maintenance_callback_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Block ALL inline button presses during maintenance (except admins).
+    Registered in group -1 so it runs before game handlers.
+    Uses answer() with show_alert — does NOT consume the update for ConversationHandler
+    callbacks because it's in a separate group.
     """
     from handlers.admin import is_maintenance
     from config import ADMIN_IDS
     if not is_maintenance():
-        return  # pass through
-    user_id = update.effective_user.id
-    if user_id in ADMIN_IDS:
-        return  # pass through for admins
-
-    # Check if user is mid-registration (ConversationHandler state)
-    # We allow /start through so a new user can always register
-    if update.message and update.message.text and update.message.text.startswith("/start"):
-        return  # pass through
-
-    await update.message.reply_text("🛠 Бот на тех. обслуживании. Скоро вернёмся!")
-    ctx.application.stop_processing = True  # signal (handled below)
-
-
-async def maintenance_callback_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Block callback queries during maintenance (except admins)."""
-    from handlers.admin import is_maintenance
-    from config import ADMIN_IDS
-    if not is_maintenance():
         return
-    user_id = update.effective_user.id
-    if user_id in ADMIN_IDS:
+    if update.effective_user.id in ADMIN_IDS:
         return
-    await update.callback_query.answer("🛠 Бот на тех. обслуживании!", show_alert=True)
+    await update.callback_query.answer("🛠 Бот на тех. обслуживании. Скоро вернёмся!", show_alert=True)
 
 
 async def post_init(app: Application):
@@ -89,19 +71,13 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # Maintenance guards run first (group -1, before ConversationHandlers)
-    # Text guard — only for non-command messages so /start still works
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, maintenance_message_guard),
-        group=-1
-    )
-    # Callback guard — covers all inline buttons
-    app.add_handler(
-        CallbackQueryHandler(maintenance_callback_guard),
-        group=-1
-    )
+    # Callback maintenance guard in group -1 (before all game handlers).
+    # NOTE: We do NOT add a global MessageHandler for maintenance here — that would
+    # compete with ConversationHandler in group 0 and break new-user registration.
+    # Text-message maintenance check happens inside handle_name_input (start.py).
+    app.add_handler(CallbackQueryHandler(maintenance_callback_guard), group=-1)
 
-    # Core handlers (group 1+, run after guards)
+    # Core handlers
     register_start_handlers(app)
     register_profile_handlers(app)
     register_rating_handlers(app)
