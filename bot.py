@@ -10,6 +10,8 @@ class Handler(BaseHTTPRequestHandler):
 threading.Thread(target=lambda: HTTPServer(('0.0.0.0', 8080), Handler).serve_forever(), daemon=True).start()
 
 import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, filters, ContextTypes, PicklePersistence
 from config import BOT_TOKEN
@@ -37,13 +39,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Глобальный executor для синхронных вызовов к БД (чтобы не блокировать event loop)
+db_executor = ThreadPoolExecutor(max_workers=10)
+
+
+async def run_in_executor(func, *args):
+    """Запускает синхронную функцию в thread pool, не блокируя event loop."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(db_executor, func, *args)
+
 
 async def maintenance_callback_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Block ALL inline button presses during maintenance (except admins).
-    Registered in group -1 so it runs before game handlers.
-    Uses answer() with show_alert — does NOT consume the update for ConversationHandler
-    callbacks because it's in a separate group.
-    """
     from handlers.admin import is_maintenance
     from config import ADMIN_IDS
     if not is_maintenance():
@@ -54,12 +60,16 @@ async def maintenance_callback_guard(update: Update, ctx: ContextTypes.DEFAULT_T
 
 
 async def post_init(app: Application):
-    init_db()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(db_executor, init_db)
 
-    with get_conn() as conn:
-        rows = fetchall(conn, "SELECT user_id, lang FROM users")
-        for row in rows:
-            set_cached_lang(row["user_id"], row["lang"])
+    def load_langs():
+        with get_conn() as conn:
+            return fetchall(conn, "SELECT user_id, lang FROM users")
+
+    rows = await loop.run_in_executor(db_executor, load_langs)
+    for row in rows:
+        set_cached_lang(row["user_id"], row["lang"])
     logger.info(f"Loaded lang cache for {len(rows)} users.")
 
     setup_scheduler(bot=app.bot)
@@ -69,9 +79,6 @@ def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not set!")
 
-    # PicklePersistence сохраняет состояния ConversationHandler между рестартами.
-    # Это решает проблему: новый пользователь начал /start, бот перезапустился —
-    # и состояние диалога (CHOOSE_LANG / ENTER_NAME / TUTORIAL) не теряется.
     persistence = PicklePersistence(filepath="bot_persistence.pkl")
 
     app = (
@@ -82,20 +89,14 @@ def main():
         .build()
     )
 
-    # Callback maintenance guard in group -1 (before all game handlers).
-    # NOTE: We do NOT add a global MessageHandler for maintenance here — that would
-    # compete with ConversationHandler in group 0 and break new-user registration.
-    # Text-message maintenance check happens inside handle_name_input (start.py).
     app.add_handler(CallbackQueryHandler(maintenance_callback_guard), group=-1)
 
-    # Core handlers
     register_start_handlers(app)
     register_profile_handlers(app)
     register_rating_handlers(app)
     register_admin_handlers(app)
     register_settings_handlers(app)
 
-    # Game handlers
     register_duel_handlers(app)
     register_pve_handlers(app)
     register_lessons_handlers(app)
