@@ -19,7 +19,7 @@ from database import (
 )
 from utils.i18n import t
 from utils.helpers import house_emoji
-from game.battle_engine import fresh_status, tick_status, resolve_turn, format_battle_status, battle_summary
+from game.battle_engine import fresh_status, tick_status, resolve_turn, format_battle_status, battle_summary, can_cast_any, MANA_REGEN_PER_TURN
 from game.spells import spell_display_name, SPELLS
 from game.monsters import ZONES, get_zone, available_zones, pick_monster, monster_ai_action, MONSTER_SPELLS
 from game.drop_system import monster_drop, apply_antifarm_xp
@@ -43,7 +43,7 @@ def _zones_keyboard(player_level: int, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-def _spells_keyboard(spell_ids: list[str], lang: str) -> InlineKeyboardMarkup:
+def _spells_keyboard(spell_ids: list[str], lang: str, current_mana: int = 9999) -> InlineKeyboardMarkup:
     buttons = []
     for sid in spell_ids[:8]:
         spell = SPELLS.get(sid)
@@ -53,9 +53,13 @@ def _spells_keyboard(spell_ids: list[str], lang: str) -> InlineKeyboardMarkup:
         mana  = spell.get("mana", 0)
         dmg   = spell.get("damage", 0)
         heal  = spell.get("heal", 0)
-        label = f"{name} | 💧{mana}"
-        if dmg:  label += f" ⚔️{dmg}"
-        if heal: label += f" 💚{heal}"
+        # Показываем серым (крестиком) если не хватает маны
+        if mana > current_mana:
+            label = f"🚫 {name} | 💧{mana}"
+        else:
+            label = f"{name} | 💧{mana}"
+            if dmg:  label += f" ⚔️{dmg}"
+            if heal: label += f" 💚{heal}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"pve_cast:{sid}")])
     buttons.append([InlineKeyboardButton("🏃 Сбежать", callback_data="pve_flee")])
     return InlineKeyboardMarkup(buttons)
@@ -163,7 +167,7 @@ async def cb_pve_enter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     spells = [row["spell_id"] for row in get_user_spells(user_id)]
     lang   = user.get("lang", "ru")
-    markup = _spells_keyboard(spells, lang)
+    markup = _spells_keyboard(spells, lang, session["player_mana"])
     await query.edit_message_text(_format_pve_text(session), parse_mode="Markdown", reply_markup=markup)
 
 
@@ -298,7 +302,22 @@ async def cb_pve_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Продолжаем бой
     spells = [row["spell_id"] for row in get_user_spells(user_id)]
-    markup = _spells_keyboard(spells, lang)
+
+    # ── НОВОЕ: проверка пата по мане ─────────────────────────────────────────
+    if not can_cast_any(spells, session["player_mana"]):
+        # Регенерируем ману пассивно (5 в ход) пока не хватит хоть на что-то
+        session["player_mana"] = min(
+            session["user"]["max_mana"],
+            session["player_mana"] + MANA_REGEN_PER_TURN
+        )
+        session["log"].append(f"✨ Мана восстанавливается... +{MANA_REGEN_PER_TURN} 💧")
+        # Если после регена всё равно ничего нельзя скастовать — завершаем бой
+        if not can_cast_any(spells, session["player_mana"]):
+            session["log"].append("💀 Мана на нуле — силы покинули тебя...")
+            await _pve_lose(query, user_id, session)
+            return
+
+    markup = _spells_keyboard(spells, lang, session["player_mana"])
     await query.edit_message_text(_format_pve_text(session), parse_mode="Markdown", reply_markup=markup)
 
 
