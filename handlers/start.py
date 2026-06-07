@@ -199,8 +199,6 @@ async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 def get_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
-        name="registration",
-        persistent=True,
         entry_points=[CommandHandler("start", cmd_start)],
         states={
             CHOOSE_LANG: [CallbackQueryHandler(cb_choose_lang, pattern=r"^lang:")],
