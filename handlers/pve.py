@@ -89,6 +89,9 @@ async def cmd_dungeon(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(user_id, "pve_no_zones"))
         return
 
+    # ИСПРАВЛЕНИЕ 1: сбрасываем зависшую сессию при входе в меню зон
+    _pve_sessions.pop(user_id, None)
+
     buttons = []
     for z in zones:
         name = z["name"].get("ru", z["name"]["en"])
@@ -106,9 +109,9 @@ async def cb_pve_enter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     zone_id = query.data.split(":")[1]
 
+    # ИСПРАВЛЕНИЕ 1: если сессия зависла — тихо сбрасываем вместо блокировки
     if user_id in _pve_sessions:
-        await query.edit_message_text(t(user_id, "pve_already_in_session"))
-        return
+        _pve_sessions.pop(user_id, None)
 
     user  = get_user(user_id)
     zone  = get_zone(zone_id)
@@ -116,12 +119,13 @@ async def cb_pve_enter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Зона не найдена.")
         return
 
-    # Determine if boss fight
-    kills_in_zone = fetchval(
-        __import__("database").get_conn().__enter__(),
-        "SELECT COUNT(*) FROM pve_sessions WHERE user_id=%s AND zone=%s AND result='win'",
-        user_id, zone_id
-    ) or 0
+    # ИСПРАВЛЕНИЕ 2: правильное обращение к БД через контекстный менеджер
+    with get_conn() as conn:
+        kills_in_zone = fetchval(
+            conn,
+            "SELECT COUNT(*) FROM pve_sessions WHERE user_id=%s AND zone=%s AND result='win'",
+            user_id, zone_id
+        ) or 0
     is_boss = (kills_in_zone > 0) and (kills_in_zone % zone["boss_every"] == 0)
 
     monster = pick_monster(zone_id, is_boss=is_boss)
@@ -193,7 +197,6 @@ async def cb_pve_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         m_spell = m_action["spell"] or {}
         m_dmg   = int(m_spell.get("damage", monster["attack"]) * (monster["attack"] / 30))
-        # Apply player's defense reduction
         defense   = user.get("defense", 5)
         reduction = defense / (defense + 30)
         m_dmg     = int(m_dmg * (1 - reduction))
@@ -236,8 +239,8 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
     drop     = monster_drop(monster, luck_modifier=luck_mod)
 
     # Anti-farm XP
-    with __import__("database").get_conn() as conn:
-        repeat_count = __import__("database").fetchval(
+    with get_conn() as conn:
+        repeat_count = fetchval(
             conn,
             "SELECT COUNT(*) FROM pve_sessions WHERE user_id=%s AND monster=%s AND created_at::date=CURRENT_DATE",
             user_id, monster["id"]
@@ -248,17 +251,16 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
     add_gold(user_id, drop["gold"])
     increment_daily(user_id, "pve_dungeons")
 
-    # Save session
-    with __import__("database").get_conn() as conn:
-        __import__("database").execute(conn, """
+    with get_conn() as conn:
+        execute(conn, """
             INSERT INTO pve_sessions (user_id, zone, monster, result, xp_gained, gold_gained)
             VALUES (%s, %s, %s, 'win', %s, %s)
         """, user_id, session["zone_id"], monster["id"], xp_actual, drop["gold"])
 
-    # House points +5 per PvE win
-    with __import__("database").get_conn() as conn:
-        __import__("database").execute(conn,
-            "UPDATE house_points SET points = points + 5 WHERE house = (SELECT house FROM users WHERE user_id=%s)", user_id)
+    with get_conn() as conn:
+        execute(conn,
+            "UPDATE house_points SET points = points + 5 WHERE house = (SELECT house FROM users WHERE user_id=%s)",
+            user_id)
 
     mname = monster["name"].get("ru", monster["id"])
     text = (
@@ -280,8 +282,8 @@ async def _pve_lose(query, user_id: int, session: dict):
     mname = session["monster"]["name"].get("ru", session["monster"]["id"])
     xp_consolation = 10
     add_xp(user_id, xp_consolation)
-    with __import__("database").get_conn() as conn:
-        __import__("database").execute(conn, """
+    with get_conn() as conn:
+        execute(conn, """
             INSERT INTO pve_sessions (user_id, zone, monster, result, xp_gained, gold_gained)
             VALUES (%s, %s, %s, 'loss', %s, 0)
         """, user_id, session["zone_id"], session["monster"]["id"], xp_consolation)
