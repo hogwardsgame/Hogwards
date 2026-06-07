@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python311"]
+nixPkgs = ["postgresql"]
 
 [start]
 cmd = "python bot.py"
