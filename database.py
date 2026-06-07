@@ -13,6 +13,10 @@ _pool: ThreadedConnectionPool | None = None
 def get_pool() -> ThreadedConnectionPool:
     global _pool
     if _pool is None:
+        # ── ИСПРАВЛЕНИЕ 1: DATABASE_URL уже исправлен в config.py (postgres:// → postgresql://)
+        # Здесь просто используем готовую переменную
+        if not DATABASE_URL:
+            raise RuntimeError("DATABASE_URL is not set! Add it to Railway environment variables.")
         _pool = ThreadedConnectionPool(2, 10, DATABASE_URL)
     return _pool
 
@@ -76,6 +80,8 @@ CREATE TABLE IF NOT EXISTS users (
     luck          INT  DEFAULT 5,
     gold          INT  DEFAULT 100,
     lang          TEXT DEFAULT 'ru',
+    is_banned     BOOLEAN DEFAULT FALSE,
+    tutorial_done BOOLEAN DEFAULT FALSE,
     created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -157,7 +163,8 @@ CREATE TABLE IF NOT EXISTS lesson_attendance (
     lesson_id INT REFERENCES lessons(id),
     user_id   BIGINT REFERENCES users(user_id),
     rewarded  BOOLEAN DEFAULT FALSE,
-    joined_at TIMESTAMPTZ DEFAULT NOW()
+    joined_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(lesson_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS quests (
@@ -243,6 +250,15 @@ CREATE TABLE IF NOT EXISTS admin_log (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ── ИСПРАВЛЕНИЕ 2: таблица для хранения состояний ConversationHandler в БД
+-- Это заменяет PicklePersistence — данные не теряются при перезапуске Railway
+CREATE TABLE IF NOT EXISTS conversation_states (
+    user_id    BIGINT PRIMARY KEY,
+    state_key  TEXT,
+    state_data JSONB,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 INSERT INTO house_points (house, points)
 VALUES ('gryffindor', 0), ('slytherin', 0), ('ravenclaw', 0), ('hufflepuff', 0)
 ON CONFLICT DO NOTHING;
@@ -278,9 +294,13 @@ def create_user(user_id: int, username: str, wizard_name: str, house: str, lang:
         execute(conn, """
             INSERT INTO users (user_id, username, wizard_name, house, lang, gold, hp, max_hp, mana, max_mana)
             VALUES (%s, %s, %s, %s, %s, 100, 100, 100, 50, 50)
+            ON CONFLICT (user_id) DO NOTHING
         """, user_id, username, wizard_name, house, lang)
-        execute(conn, "INSERT INTO user_stats (user_id) VALUES (%s)", user_id)
-        execute(conn, "INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s)", user_id, starter_spell)
+        execute(conn, "INSERT INTO user_stats (user_id) VALUES (%s) ON CONFLICT DO NOTHING", user_id)
+        execute(conn, """
+            INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+        """, user_id, starter_spell)
 
 
 def set_user_lang(user_id: int, lang: str):
@@ -351,6 +371,10 @@ def add_gold(user_id: int, amount: int):
 
 
 def get_daily_limit(user_id: int, activity: str) -> int:
+    # ── ИСПРАВЛЕНИЕ 3 (защита от SQL-инъекций через whitelist)
+    allowed = {"pvp_duels", "pve_dungeons", "pve_quests", "lessons", "auction_lots"}
+    if activity not in allowed:
+        raise ValueError(f"Unknown activity: {activity}")
     with get_conn() as conn:
         row = fetchrow(conn,
             f"SELECT {activity} FROM daily_limits WHERE user_id = %s AND date = CURRENT_DATE",
@@ -360,6 +384,10 @@ def get_daily_limit(user_id: int, activity: str) -> int:
 
 
 def increment_daily(user_id: int, activity: str):
+    # ── ИСПРАВЛЕНИЕ 3 (защита от SQL-инъекций через whitelist)
+    allowed = {"pvp_duels", "pve_dungeons", "pve_quests", "lessons", "auction_lots"}
+    if activity not in allowed:
+        raise ValueError(f"Unknown activity: {activity}")
     with get_conn() as conn:
         execute(conn, f"""
             INSERT INTO daily_limits (user_id, date, {activity})
@@ -379,4 +407,70 @@ def get_leaderboard(limit: int = 10):
 
 def reset_house_cup_points():
     with get_conn() as conn:
-        execute(conn, "UPDATE house_points SET points = 0")
+        execute(conn, "UPDATE house_points SET points = 0, updated_at = NOW()")
+
+
+def ban_user(user_id: int):
+    with get_conn() as conn:
+        execute(conn, "UPDATE users SET is_banned = TRUE WHERE user_id = %s", user_id)
+
+
+def unban_user(user_id: int):
+    with get_conn() as conn:
+        execute(conn, "UPDATE users SET is_banned = FALSE WHERE user_id = %s", user_id)
+
+
+def is_banned(user_id: int) -> bool:
+    with get_conn() as conn:
+        row = fetchrow(conn, "SELECT is_banned FROM users WHERE user_id = %s", user_id)
+        return row["is_banned"] if row else False
+
+
+def get_all_user_ids() -> list:
+    with get_conn() as conn:
+        rows = fetchall(conn, "SELECT user_id FROM users WHERE is_banned = FALSE")
+        return [r["user_id"] for r in rows]
+
+
+def log_admin_action(admin_id: int, action: str, target_id: int = None, details: str = None):
+    with get_conn() as conn:
+        execute(conn,
+            "INSERT INTO admin_log (admin_id, action, target_id, details) VALUES (%s, %s, %s, %s)",
+            admin_id, action, target_id, details
+        )
+
+
+# ─── ИСПРАВЛЕНИЕ 2: сохранение состояний ConversationHandler в БД ─────────────
+# Это нужно чтобы при перезапуске Railway игроки не теряли прогресс регистрации
+
+def save_conv_state(user_id: int, state_key: str, state_data: dict):
+    import json
+    with get_conn() as conn:
+        execute(conn, """
+            INSERT INTO conversation_states (user_id, state_key, state_data, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_id) DO UPDATE
+                SET state_key = EXCLUDED.state_key,
+                    state_data = EXCLUDED.state_data,
+                    updated_at = NOW()
+        """, user_id, state_key, json.dumps(state_data))
+
+
+def load_conv_state(user_id: int) -> dict | None:
+    import json
+    with get_conn() as conn:
+        row = fetchrow(conn,
+            "SELECT state_key, state_data FROM conversation_states WHERE user_id = %s",
+            user_id
+        )
+        if not row:
+            return None
+        return {
+            "state_key": row["state_key"],
+            "state_data": json.loads(row["state_data"]) if row["state_data"] else {}
+        }
+
+
+def clear_conv_state(user_id: int):
+    with get_conn() as conn:
+        execute(conn, "DELETE FROM conversation_states WHERE user_id = %s", user_id)
