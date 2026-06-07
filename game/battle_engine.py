@@ -302,6 +302,7 @@ def resolve_turn(
         "defender_hp":    defender_current_hp,
         "log":            "",
         "flavour":        "",
+        "mana_empty":     False,  # НОВОЕ: нет маны ни на одно заклинание
         # ИСПРАВЛЕНИЕ: возвращаем обновлённые статусы
         "new_atk_status": attacker_status.copy(),
         "new_def_status": defender_status.copy(),
@@ -315,6 +316,7 @@ def resolve_turn(
     mana_cost = spell.get("mana", 0)
     if attacker_current_mana < mana_cost:
         result["log"] = "💧 Недостаточно маны!"
+        result["mana_empty"] = True   # НОВОЕ: сигнал для обработчиков
         if attacker_current_mana < 20:
             result["flavour"] = flavour_line("mana_low")
         return result
@@ -455,6 +457,21 @@ def format_battle_status(status: dict) -> str:
     if status.get("curse",   0) > 0: icons.append("☠️")
     if status.get("poison",  0) > 0: icons.append("🟢")
     if status.get("confuse", 0) > 0: icons.append("💫")
-    if status.get("shield",  0) > 0: icons.append("🔵")   # новое: показываем активный щит
-    if status.get("silence", 0) > 0: icons.append("🤐")   # новое: показываем молчание
+    if status.get("shield",  0) > 0: icons.append("🔵")
+    if status.get("silence", 0) > 0: icons.append("🤐")
     return " ".join(icons)
+
+
+def can_cast_any(spell_ids: list[str], current_mana: int) -> bool:
+    """
+    Проверяет, может ли игрок скастовать хотя бы одно заклинание из списка.
+    Используется для обнаружения пата по мане.
+    """
+    for sid in spell_ids:
+        spell = get_spell(sid)
+        if spell and spell.get("mana", 0) <= current_mana:
+            return True
+    return False
+
+
+MANA_REGEN_PER_TURN = 5  # сколько маны восстанавливается в ход при истощении
