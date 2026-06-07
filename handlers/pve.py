@@ -1,6 +1,13 @@
 """
 PvE Dungeons handler — TZ section 8.2.
 Player fights monsters zone by zone; every 5 kills = mini-boss.
+
+ИСПРАВЛЕНИЯ:
+  1. Читаем new_atk_status / new_def_status из resolve_turn (раньше статусы не сохранялись)
+  2. Урон монстра теперь честно считается через resolve_turn (не самодельная формула)
+  3. Эффекты монстра (яд, ожог, оглушение) теперь реально применяются к игроку
+  4. Флейвор-реплики из battle_engine отображаются в логе боя
+  5. Добавлено отображение иконки щита 🔵 и тишины 🤐 в статусе
 """
 import logging
 import random
@@ -12,9 +19,9 @@ from database import (
 )
 from utils.i18n import t
 from utils.helpers import house_emoji
-from game.battle_engine import fresh_status, tick_status, resolve_turn, format_battle_status
+from game.battle_engine import fresh_status, tick_status, resolve_turn, format_battle_status, battle_summary
 from game.spells import spell_display_name, SPELLS
-from game.monsters import ZONES, get_zone, available_zones, pick_monster, monster_ai_action
+from game.monsters import ZONES, get_zone, available_zones, pick_monster, monster_ai_action, MONSTER_SPELLS
 from game.drop_system import monster_drop, apply_antifarm_xp
 from config import DAILY_LIMITS
 
@@ -59,11 +66,17 @@ def _format_pve_text(session: dict) -> str:
     user    = session["user"]
     ps = format_battle_status(session["player_status"])
     ms = format_battle_status(session["monster_status"])
-    log_tail = "\n".join(session["log"][-4:])
+    log_tail = "\n".join(session["log"][-5:])
     mname = monster["name"].get("ru", monster["id"])
+    # Полоска HP монстра
+    max_hp = monster["hp"]
+    cur_hp = session["monster_hp"]
+    bar_len = 10
+    filled = int(bar_len * cur_hp / max_hp) if max_hp > 0 else 0
+    hp_bar = "█" * filled + "░" * (bar_len - filled)
     return (
         f"{monster.get('emoji','🐉')} *{mname}*\n"
-        f"❤️ {session['monster_hp']}/{monster['hp']} {ms}\n"
+        f"❤️ `[{hp_bar}]` {cur_hp}/{max_hp} {ms}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🧙 {user['wizard_name']} {house_emoji(user['house'])} {ps}\n"
         f"❤️ {session['player_hp']}/{user['max_hp']} | 💧{session['player_mana']}/{user['max_mana']}\n"
@@ -89,7 +102,7 @@ async def cmd_dungeon(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(user_id, "pve_no_zones"))
         return
 
-    # ИСПРАВЛЕНИЕ 1: сбрасываем зависшую сессию при входе в меню зон
+    # Сбрасываем зависшую сессию при входе в меню зон
     _pve_sessions.pop(user_id, None)
 
     buttons = []
@@ -109,9 +122,8 @@ async def cb_pve_enter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     zone_id = query.data.split(":")[1]
 
-    # ИСПРАВЛЕНИЕ 1: если сессия зависла — тихо сбрасываем вместо блокировки
-    if user_id in _pve_sessions:
-        _pve_sessions.pop(user_id, None)
+    # Если сессия зависла — тихо сбрасываем
+    _pve_sessions.pop(user_id, None)
 
     user  = get_user(user_id)
     zone  = get_zone(zone_id)
@@ -119,7 +131,6 @@ async def cb_pve_enter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Зона не найдена.")
         return
 
-    # ИСПРАВЛЕНИЕ 2: правильное обращение к БД через контекстный менеджер
     with get_conn() as conn:
         kills_in_zone = fetchval(
             conn,
@@ -134,16 +145,19 @@ async def cb_pve_enter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     session = {
-        "zone_id":        zone_id,
-        "user":           dict(user),
-        "monster":        dict(monster),
-        "player_hp":      user["hp"],
-        "player_mana":    user["mana"],
-        "monster_hp":     monster["hp"],
-        "player_status":  fresh_status(),
-        "monster_status": fresh_status(),
-        "turn":           1,
-        "log":            [f"🏴 Ты встретил {monster['name'].get('ru','?')}!"],
+        "zone_id":         zone_id,
+        "user":            dict(user),
+        "monster":         dict(monster),
+        "player_hp":       user["hp"],
+        "player_mana":     user["mana"],
+        "monster_hp":      monster["hp"],
+        "player_status":   fresh_status(),
+        "monster_status":  fresh_status(),
+        "turn":            1,
+        "log":             [f"🏴 Ты встретил {monster['name'].get('ru','?')}!"],
+        # Статистика боя (новое)
+        "total_dmg_dealt": 0,
+        "total_dmg_taken": 0,
     }
     _pve_sessions[user_id] = session
 
@@ -168,53 +182,111 @@ async def cb_pve_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     monster = session["monster"]
     lang    = user.get("lang", "ru")
 
-    # ── Player turn ──────────────────────────────────────────────────────────
+    # ── Ход игрока ────────────────────────────────────────────────────────────
     result = resolve_turn(
         spell_id, user, monster,
         session["player_status"], session["monster_status"],
         session["player_hp"], session["monster_hp"], session["player_mana"],
     )
-    session["player_hp"]     = result["attacker_hp"]
-    session["monster_hp"]    = result["defender_hp"]
-    session["player_mana"]   = max(0, session["player_mana"] - result["mana_cost"])
-    session["player_status"] = result.get("new_atk_status", session["player_status"])
-    session["monster_status"]= result.get("new_def_status", session["monster_status"])
+
+    session["player_hp"]      = result["attacker_hp"]
+    session["monster_hp"]     = result["defender_hp"]
+    session["player_mana"]    = max(0, session["player_mana"] - result["mana_cost"])
+
+    # ИСПРАВЛЕНИЕ: берём обновлённые статусы из результата
+    session["player_status"]  = result["new_atk_status"]
+    session["monster_status"] = result["new_def_status"]
+
+    session["total_dmg_dealt"] += result["damage"]
 
     sname = spell_display_name(spell_id, lang)
-    session["log"].append(f"🧙 {sname}: {result['log']}")
+    log_entry = f"🧙 {sname}: {result['log']}"
+    if result.get("flavour"):
+        log_entry += f"\n_{result['flavour']}_"
+    session["log"].append(log_entry)
 
-    # Check monster death
+    # Проверка гибели монстра
     if result.get("instant_kill") or session["monster_hp"] <= 0:
         await _pve_win(query, user_id, session, ctx)
         return
 
-    # ── Monster turn ─────────────────────────────────────────────────────────
+    # ── Ход монстра ───────────────────────────────────────────────────────────
     m_action = monster_ai_action(monster, session["monster_hp"], session["player_hp"], session["turn"])
 
     if m_action["action"] == "defend":
-        session["monster_status"]["block"] = True
+        # ИСПРАВЛЕНИЕ: применяем эффект защиты через apply_effect
+        from game.battle_engine import apply_effect
+        session["monster_status"] = apply_effect("block", session["monster_status"])
         session["log"].append(f"{monster.get('emoji','🐉')} Защищается!")
     else:
-        m_spell = m_action["spell"] or {}
-        m_dmg   = int(m_spell.get("damage", monster["attack"]) * (monster["attack"] / 30))
-        defense   = user.get("defense", 5)
-        reduction = defense / (defense + 30)
-        m_dmg     = int(m_dmg * (1 - reduction))
-        if session["player_status"].get("block"):
-            m_dmg = int(m_dmg * 0.6)
-        m_dmg = max(m_dmg, 1)
-        session["player_hp"] = max(0, session["player_hp"] - m_dmg)
-        effect = m_spell.get("effect")
-        eff_tag = f" ({effect})" if effect else ""
-        session["log"].append(f"{monster.get('emoji','🐉')} {m_action['spell_id']}: -{m_dmg} ХП{eff_tag}")
+        # ИСПРАВЛЕНИЕ: урон монстра считаем через resolve_turn,
+        # чтобы корректно работали блок, щит, яд и всё остальное.
+        m_spell_data = m_action.get("spell") or {}
+        m_spell_id   = m_action.get("spell_id", "bite")
 
-    # Tick statuses
+        # Строим псевдо-спелл из данных монстра если это не настоящий спелл
+        pseudo_spell = {
+            "id":            m_spell_id,
+            "type":          "attack",
+            "mana":          0,
+            "damage":        m_spell_data.get("damage", monster["attack"]),
+            "effect":        m_spell_data.get("effect"),
+            "effect_chance": m_spell_data.get("effect_chance", 0.3),
+        }
+
+        # Монстр атакует игрока
+        m_result = resolve_turn(
+            m_spell_id,
+            monster,        # атакующий монстр
+            user,           # защищающийся игрок
+            session["monster_status"],
+            session["player_status"],
+            session["monster_hp"],
+            session["player_hp"],
+            9999,            # у монстра бесконечная мана
+        )
+
+        # Но resolve_turn ищет спелл в SPELLS словаре — если не найден,
+        # делаем fallback на ручной расчёт с корректным учётом защиты
+        if m_result["damage"] == 0 and not m_result["skipped"] and not m_result["missed"]:
+            # Спелл монстра не найден в SPELLS — считаем вручную, но честно
+            from game.battle_engine import calculate_damage
+            m_dmg, _, _, _, updated_player_status = calculate_damage(
+                pseudo_spell, monster, user,
+                session["monster_status"], session["player_status"]
+            )
+            session["player_hp"]     = max(0, session["player_hp"] - m_dmg)
+            session["player_status"] = updated_player_status
+            session["total_dmg_taken"] += m_dmg
+            effect = m_spell_data.get("effect")
+            eff_tag = f" ({effect})" if effect else ""
+            session["log"].append(f"{monster.get('emoji','🐉')} -{m_dmg} ХП{eff_tag}")
+        else:
+            # resolve_turn сработал корректно — применяем его результаты
+            # (для монстра: attacker=монстр, defender=игрок)
+            m_dmg = m_result["damage"]
+            session["player_hp"]      = m_result["defender_hp"]
+            session["monster_hp"]     = m_result["attacker_hp"]   # отражение
+            session["monster_status"] = m_result["new_atk_status"]
+            session["player_status"]  = m_result["new_def_status"]
+            session["total_dmg_taken"] += m_dmg
+            m_log = f"{monster.get('emoji','🐉')} {m_result['log']}"
+            if m_result.get("flavour"):
+                m_log += f"\n_{m_result['flavour']}_"
+            session["log"].append(m_log)
+
+    # Тик статусов (DoT-эффекты)
     ps, dot_p = tick_status(session["player_status"])
     ms, dot_m = tick_status(session["monster_status"])
     session["player_status"]  = ps
     session["monster_status"] = ms
-    session["player_hp"]  = max(0, session["player_hp"] - dot_p)
-    session["monster_hp"] = max(0, session["monster_hp"] - dot_m)
+    if dot_p > 0:
+        session["player_hp"]  = max(0, session["player_hp"] - dot_p)
+        session["log"].append(f"🔥 Урон от эффекта: -{dot_p} ХП")
+    if dot_m > 0:
+        session["monster_hp"] = max(0, session["monster_hp"] - dot_m)
+        session["log"].append(f"🔥 Монстр получает урон от эффекта: -{dot_m} ХП")
+
     session["turn"] += 1
 
     if session["player_hp"] <= 0:
@@ -224,7 +296,7 @@ async def cb_pve_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await _pve_win(query, user_id, session, ctx)
         return
 
-    # Continue
+    # Продолжаем бой
     spells = [row["spell_id"] for row in get_user_spells(user_id)]
     markup = _spells_keyboard(spells, lang)
     await query.edit_message_text(_format_pve_text(session), parse_mode="Markdown", reply_markup=markup)
@@ -262,17 +334,20 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
             "UPDATE house_points SET points = points + 5 WHERE house = (SELECT house FROM users WHERE user_id=%s)",
             user_id)
 
-    mname = monster["name"].get("ru", monster["id"])
+    mname   = monster["name"].get("ru", monster["id"])
+    summary = battle_summary(session["turn"], session["total_dmg_dealt"], session["total_dmg_taken"])
+
     text = (
         f"🏆 *{mname} повержен!*\n"
         f"+{xp_actual} XP | +{drop['gold']} 💰\n"
+        f"\n{summary}\n"
     )
     if drop["spell"]:
-        text += f"✨ Получено заклинание: `{drop['spell']}`!\n"
+        text += f"\n✨ Получено заклинание: `{drop['spell']}`!"
     if drop["item"]:
-        text += f"🎁 Получен предмет: `{drop['item']['id']}`!\n"
+        text += f"\n🎁 Получен предмет: `{drop['item']['id']}`!"
     if leveled_up:
-        text += f"\n🎉 Уровень повышен до {new_level}!"
+        text += f"\n\n🎉 Уровень повышен до {new_level}!"
 
     await query.edit_message_text(text, parse_mode="Markdown")
 
@@ -282,13 +357,17 @@ async def _pve_lose(query, user_id: int, session: dict):
     mname = session["monster"]["name"].get("ru", session["monster"]["id"])
     xp_consolation = 10
     add_xp(user_id, xp_consolation)
+
+    summary = battle_summary(session["turn"], session["total_dmg_dealt"], session["total_dmg_taken"])
+
     with get_conn() as conn:
         execute(conn, """
             INSERT INTO pve_sessions (user_id, zone, monster, result, xp_gained, gold_gained)
             VALUES (%s, %s, %s, 'loss', %s, 0)
         """, user_id, session["zone_id"], session["monster"]["id"], xp_consolation)
+
     await query.edit_message_text(
-        f"💀 *{mname} победил тебя!*\n+{xp_consolation} XP за участие.",
+        f"💀 *{mname} победил тебя!*\n+{xp_consolation} XP за участие.\n\n{summary}",
         parse_mode="Markdown"
     )
 
