@@ -11,7 +11,7 @@ threading.Thread(target=lambda: HTTPServer(('0.0.0.0', 8080), Handler).serve_for
 
 import logging
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, filters, ContextTypes, PicklePersistence
 from config import BOT_TOKEN
 from database import init_db, get_conn, fetchall
 from utils.scheduler import setup_scheduler
@@ -69,7 +69,18 @@ def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not set!")
 
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    # PicklePersistence сохраняет состояния ConversationHandler между рестартами.
+    # Это решает проблему: новый пользователь начал /start, бот перезапустился —
+    # и состояние диалога (CHOOSE_LANG / ENTER_NAME / TUTORIAL) не теряется.
+    persistence = PicklePersistence(filepath="bot_persistence.pkl")
+
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .persistence(persistence)
+        .post_init(post_init)
+        .build()
+    )
 
     # Callback maintenance guard in group -1 (before all game handlers).
     # NOTE: We do NOT add a global MessageHandler for maintenance here — that would
