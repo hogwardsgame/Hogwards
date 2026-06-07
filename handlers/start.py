@@ -42,7 +42,9 @@ def main_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
         [KeyboardButton(t(user_id, "btn_profile")), KeyboardButton(t(user_id, "btn_duel"))],
         [KeyboardButton(t(user_id, "btn_dungeon")), KeyboardButton(t(user_id, "btn_shop"))],
         [KeyboardButton(t(user_id, "btn_lessons")), KeyboardButton(t(user_id, "btn_inventory"))],
-        [KeyboardButton(t(user_id, "btn_rating")), KeyboardButton(t(user_id, "btn_settings"))],
+        [KeyboardButton(t(user_id, "btn_quests")), KeyboardButton(t(user_id, "btn_auction"))],
+        [KeyboardButton(t(user_id, "btn_events")), KeyboardButton(t(user_id, "btn_rating"))],
+        [KeyboardButton(t(user_id, "btn_settings"))],
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
