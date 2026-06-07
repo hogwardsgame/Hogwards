@@ -58,13 +58,20 @@ def _format_battle_text(state: dict) -> str:
     os = format_battle_status(state["opponent_status"])
     log_tail = "\n".join(state["log"][-5:])
 
+    # Полоски HP
+    bar_len = 8
+    p_fill = int(bar_len * state["player_hp"] / p["max_hp"]) if p.get("max_hp") else 0
+    o_fill = int(bar_len * state["opponent_hp"] / o["max_hp"]) if o.get("max_hp") else 0
+    p_bar  = "█" * p_fill + "░" * (bar_len - p_fill)
+    o_bar  = "█" * o_fill + "░" * (bar_len - o_fill)
+
     return (
         f"⚔️ *Дуэль!*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🧙 {p['wizard_name']} {house_emoji(p['house'])} {ps}\n"
-        f"❤️ {state['player_hp']}/{p['max_hp']} | 💧{state['player_mana']}/{p['max_mana']}\n\n"
+        f"❤️ `[{p_bar}]` {state['player_hp']}/{p['max_hp']} | 💧{state['player_mana']}/{p['max_mana']}\n\n"
         f"🧙 {o['wizard_name']} {house_emoji(o['house'])} {os}\n"
-        f"❤️ {state['opponent_hp']}/{o['max_hp']} | 💧{state['opponent_mana']}/{o['max_mana']}\n"
+        f"❤️ `[{o_bar}]` {state['opponent_hp']}/{o['max_hp']} | 💧{state['opponent_mana']}/{o['max_mana']}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{log_tail}"
     )
@@ -378,18 +385,27 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     result = resolve_turn(spell_id, attacker, defender, atk_st, def_st, atk_hp, def_hp, atk_mana)
 
     # Apply results
+    # ИСПРАВЛЕНИЕ: читаем new_atk_status / new_def_status из resolve_turn
+    # (без этого статусы — яд, щит, оглушение — не сохранялись между ходами)
     if actor_key == "player":
-        state["player_hp"]     = result["attacker_hp"]
-        state["opponent_hp"]   = result["defender_hp"]
-        state["player_mana"]   = max(0, atk_mana - result["mana_cost"])
+        state["player_hp"]       = result["attacker_hp"]
+        state["opponent_hp"]     = result["defender_hp"]
+        state["player_mana"]     = max(0, atk_mana - result["mana_cost"])
+        state["player_status"]   = result["new_atk_status"]
+        state["opponent_status"] = result["new_def_status"]
     else:
-        state["opponent_hp"]   = result["attacker_hp"]
-        state["player_hp"]     = result["defender_hp"]
-        state["opponent_mana"] = max(0, atk_mana - result["mana_cost"])
+        state["opponent_hp"]     = result["attacker_hp"]
+        state["player_hp"]       = result["defender_hp"]
+        state["opponent_mana"]   = max(0, atk_mana - result["mana_cost"])
+        state["opponent_status"] = result["new_atk_status"]
+        state["player_status"]   = result["new_def_status"]
 
     lang = attacker.get("lang", "ru")
     sname = spell_display_name(spell_id, lang)
-    state["log"].append(f"{house_emoji(attacker['house'])} {attacker['wizard_name']}: {sname} — {result['log']}")
+    log_entry = f"{house_emoji(attacker['house'])} {attacker['wizard_name']}: {sname} — {result['log']}"
+    if result.get("flavour"):
+        log_entry += f"\n_{result['flavour']}_"
+    state["log"].append(log_entry)
 
     # Check end
     if result.get("instant_kill") or state["player_hp"] <= 0 or state["opponent_hp"] <= 0:
