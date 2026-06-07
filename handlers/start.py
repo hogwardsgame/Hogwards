@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     ContextTypes, CommandHandler, CallbackQueryHandler,
@@ -32,7 +33,6 @@ def lang_keyboard():
 
 
 def settings_lang_keyboard():
-    """Lang keyboard for settings — uses setlang: prefix."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(label, callback_data=f"setlang:{code}")]
         for label, code in LANG_OPTIONS
@@ -57,11 +57,18 @@ def main_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 
+async def _db(func, *args):
+    """Запускает синхронный DB-вызов не блокируя event loop."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, func, *args)
+
+
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    if user_exists(user_id):
-        user = get_user(user_id)
+    exists = await _db(user_exists, user_id)
+    if exists:
+        user = await _db(get_user, user_id)
         set_cached_lang(user_id, user["lang"])
         await update.message.reply_text(t(user_id, "already_registered"))
         await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
@@ -91,25 +98,28 @@ async def handle_name_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(user_id, error))
         return ENTER_NAME
 
-    if wizard_name_taken(name):
+    taken = await _db(wizard_name_taken, name)
+    if taken:
         await update.message.reply_text(t(user_id, "name_taken"))
         return ENTER_NAME
 
     ctx.user_data["wizard_name"] = name
     hat_msg = await update.message.reply_text(t(user_id, "sorting_hat"), parse_mode="Markdown")
 
-    house_counts = get_house_counts()
+    house_counts = await _db(get_house_counts)
     house = pick_house(house_counts)
     starter_spell = get_starter_spell(house)
     lang = ctx.user_data.get("lang", "ru")
 
-    create_user(
-        user_id=user_id,
-        username=update.effective_user.username or "",
-        wizard_name=name,
-        house=house,
-        lang=lang,
-        starter_spell=starter_spell,
+    await _db(
+        lambda: create_user(
+            user_id=user_id,
+            username=update.effective_user.username or "",
+            wizard_name=name,
+            house=house,
+            lang=lang,
+            starter_spell=starter_spell,
+        )
     )
 
     await hat_msg.edit_text(t(user_id, f"sorted_{house}"), parse_mode="Markdown")
@@ -139,7 +149,8 @@ async def cb_tutorial(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not user_exists(user_id):
+    exists = await _db(user_exists, user_id)
+    if not exists:
         await update.message.reply_text(t(user_id, "not_registered"))
         return
     await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
@@ -147,7 +158,8 @@ async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def handle_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not user_exists(user_id):
+    exists = await _db(user_exists, user_id)
+    if not exists:
         await update.message.reply_text(t(user_id, "not_registered"))
         return
     await update.message.reply_text(
@@ -173,7 +185,7 @@ async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     lang = query.data.split(":")[1]
     set_cached_lang(user_id, lang)
-    set_user_lang(user_id, lang)
+    await _db(set_user_lang, user_id, lang)
 
     messages = {
         "ru": "✅ Язык изменён!\n\nНажми /start чтобы обновить меню.",
@@ -182,14 +194,11 @@ async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "de": "✅ Sprache geändert!\n\nDrücke /start, um das Menü zu aktualisieren.",
         "pt": "✅ Idioma alterado!\n\nPressione /start para atualizar o menu.",
     }
-    text = messages.get(lang, messages["en"])
-    await query.edit_message_text(text)
+    await query.edit_message_text(messages.get(lang, messages["en"]))
 
 
 def get_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
-        # name обязателен при использовании PicklePersistence —
-        # именно по нему persistence сохраняет/восстанавливает состояния.
         name="registration",
         persistent=True,
         entry_points=[CommandHandler("start", cmd_start)],
