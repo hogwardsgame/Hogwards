@@ -11,7 +11,7 @@ threading.Thread(target=lambda: HTTPServer(('0.0.0.0', 8080), Handler).serve_for
 
 import logging
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from config import BOT_TOKEN
 from database import init_db, get_conn, fetchall
 from utils.scheduler import setup_scheduler
@@ -38,13 +38,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def maintenance_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Block all messages during maintenance (except admins)."""
+async def maintenance_message_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Block text messages during maintenance (except admins).
+    Returns True to stop further processing, None to pass through.
+    """
     from handlers.admin import is_maintenance
     from config import ADMIN_IDS
-    if is_maintenance() and update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("🛠 Бот на тех. обслуживании. Скоро вернёмся!")
+    if not is_maintenance():
+        return  # pass through
+    user_id = update.effective_user.id
+    if user_id in ADMIN_IDS:
+        return  # pass through for admins
+
+    # Check if user is mid-registration (ConversationHandler state)
+    # We allow /start through so a new user can always register
+    if update.message and update.message.text and update.message.text.startswith("/start"):
+        return  # pass through
+
+    await update.message.reply_text("🛠 Бот на тех. обслуживании. Скоро вернёмся!")
+    ctx.application.stop_processing = True  # signal (handled below)
+
+
+async def maintenance_callback_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Block callback queries during maintenance (except admins)."""
+    from handlers.admin import is_maintenance
+    from config import ADMIN_IDS
+    if not is_maintenance():
         return
+    user_id = update.effective_user.id
+    if user_id in ADMIN_IDS:
+        return
+    await update.callback_query.answer("🛠 Бот на тех. обслуживании!", show_alert=True)
 
 
 async def post_init(app: Application):
@@ -65,13 +89,19 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # Maintenance guard runs first (group 0 for messages only)
+    # Maintenance guards run first (group -1, before ConversationHandlers)
+    # Text guard — only for non-command messages so /start still works
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, maintenance_guard),
-        group=0
+        MessageHandler(filters.TEXT & ~filters.COMMAND, maintenance_message_guard),
+        group=-1
+    )
+    # Callback guard — covers all inline buttons
+    app.add_handler(
+        CallbackQueryHandler(maintenance_callback_guard),
+        group=-1
     )
 
-    # Core handlers
+    # Core handlers (group 1+, run after guards)
     register_start_handlers(app)
     register_profile_handlers(app)
     register_rating_handlers(app)
