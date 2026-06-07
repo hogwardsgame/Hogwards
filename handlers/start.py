@@ -31,6 +31,14 @@ def lang_keyboard():
     ])
 
 
+def settings_lang_keyboard():
+    """Lang keyboard for settings — uses setlang: prefix."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, callback_data=f"setlang:{code}")]
+        for label, code in LANG_OPTIONS
+    ])
+
+
 def tutorial_keyboard(user_id: int):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(t(user_id, "btn_next"), callback_data="tutorial:next")]
@@ -155,10 +163,7 @@ async def cb_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.edit_message_text(
         t_lang("ru", "choose_lang"),
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(label, callback_data=f"setlang:{code}")]
-            for label, code in LANG_OPTIONS
-        ])
+        reply_markup=settings_lang_keyboard(),
     )
 
 
@@ -169,7 +174,17 @@ async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     lang = query.data.split(":")[1]
     set_cached_lang(user_id, lang)
     set_user_lang(user_id, lang)
-    await query.edit_message_text(t(user_id, "lang_changed"))
+
+    # Build a thank-you message with a hint to /start in the new language
+    messages = {
+        "ru": "✅ Язык изменён!\n\nНажми /start чтобы обновить меню.",
+        "en": "✅ Language changed!\n\nPress /start to refresh the menu.",
+        "es": "✅ ¡Idioma cambiado!\n\nPresiona /start para actualizar el menú.",
+        "de": "✅ Sprache geändert!\n\nDrücke /start, um das Menü zu aktualisieren.",
+        "pt": "✅ Idioma alterado!\n\nPressione /start para atualizar o menu.",
+    }
+    text = messages.get(lang, messages["en"])
+    await query.edit_message_text(text)
 
 
 def get_conversation_handler() -> ConversationHandler:
