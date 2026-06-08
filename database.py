@@ -13,10 +13,8 @@ _pool: ThreadedConnectionPool | None = None
 def get_pool() -> ThreadedConnectionPool:
     global _pool
     if _pool is None:
-        # ── ИСПРАВЛЕНИЕ 1: DATABASE_URL уже исправлен в config.py (postgres:// → postgresql://)
-        # Здесь просто используем готовую переменную
         if not DATABASE_URL:
-            raise RuntimeError("DATABASE_URL is not set! Add it to Railway environment variables.")
+            raise RuntimeError("DATABASE_URL is not set!")
         _pool = ThreadedConnectionPool(2, 10, DATABASE_URL)
     return _pool
 
@@ -60,7 +58,7 @@ def execute(conn, sql, *args):
         cur.execute(sql, args)
 
 
-# ─── Schema ───────────────────────────────────────────────────────────────────
+# ─── Schema ────────────────────────────────────────────────────────────────────
 
 CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -78,43 +76,54 @@ CREATE TABLE IF NOT EXISTS users (
     defense       INT  DEFAULT 5,
     speed         INT  DEFAULT 10,
     luck          INT  DEFAULT 5,
-    gold          INT  DEFAULT 100,
+    gold          INT  DEFAULT 0,
     lang          TEXT DEFAULT 'ru',
     is_banned     BOOLEAN DEFAULT FALSE,
     tutorial_done BOOLEAN DEFAULT FALSE,
+    title         TEXT DEFAULT NULL,
+    wand_wood     TEXT DEFAULT NULL,
+    wand_core     TEXT DEFAULT NULL,
+    wand_length   INT  DEFAULT NULL,
+    wand_flex     TEXT DEFAULT NULL,
+    squad_id      INT  DEFAULT NULL,
     created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS user_stats (
-    user_id       BIGINT PRIMARY KEY REFERENCES users(user_id),
-    pvp_wins      INT DEFAULT 0,
-    pvp_losses    INT DEFAULT 0,
-    pvp_total     INT DEFAULT 0,
-    pve_kills     INT DEFAULT 0,
-    quests_done   INT DEFAULT 0,
-    lessons_done  INT DEFAULT 0
+    user_id           BIGINT PRIMARY KEY REFERENCES users(user_id),
+    pvp_wins          INT DEFAULT 0,
+    pvp_losses        INT DEFAULT 0,
+    pvp_total         INT DEFAULT 0,
+    pve_kills         INT DEFAULT 0,
+    boss_kills        INT DEFAULT 0,
+    world_boss_kills  INT DEFAULT 0,
+    quests_done       INT DEFAULT 0,
+    lessons_done      INT DEFAULT 0,
+    potions_brewed    INT DEFAULT 0,
+    gold_earned       INT DEFAULT 0,
+    combo_used        INT DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS user_spells (
-    id        SERIAL PRIMARY KEY,
-    user_id   BIGINT REFERENCES users(user_id),
-    spell_id  TEXT NOT NULL,
+    id         SERIAL PRIMARY KEY,
+    user_id    BIGINT REFERENCES users(user_id),
+    spell_id   TEXT NOT NULL,
     learned_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, spell_id)
 );
 
 CREATE TABLE IF NOT EXISTS inventory (
-    id         SERIAL PRIMARY KEY,
-    user_id    BIGINT REFERENCES users(user_id),
-    item_id    TEXT NOT NULL,
-    quantity   INT DEFAULT 1,
+    id          SERIAL PRIMARY KEY,
+    user_id     BIGINT REFERENCES users(user_id),
+    item_id     TEXT NOT NULL,
+    quantity    INT DEFAULT 1,
     acquired_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS equipped_items (
-    user_id   BIGINT REFERENCES users(user_id),
-    slot      TEXT NOT NULL,
-    item_id   TEXT NOT NULL,
+    user_id BIGINT REFERENCES users(user_id),
+    slot    TEXT NOT NULL,
+    item_id TEXT NOT NULL,
     PRIMARY KEY (user_id, slot)
 );
 
@@ -129,33 +138,33 @@ CREATE TABLE IF NOT EXISTS duels (
 );
 
 CREATE TABLE IF NOT EXISTS duel_log (
-    id       SERIAL PRIMARY KEY,
-    duel_id  INT REFERENCES duels(id),
-    turn     INT,
-    actor_id BIGINT,
-    action   TEXT,
-    details  JSONB,
+    id         SERIAL PRIMARY KEY,
+    duel_id    INT REFERENCES duels(id),
+    turn       INT,
+    actor_id   BIGINT,
+    action     TEXT,
+    details    JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS pve_sessions (
-    id         SERIAL PRIMARY KEY,
-    user_id    BIGINT REFERENCES users(user_id),
-    zone       TEXT,
-    monster    TEXT,
-    result     TEXT,
-    xp_gained  INT DEFAULT 0,
+    id          SERIAL PRIMARY KEY,
+    user_id     BIGINT REFERENCES users(user_id),
+    zone        TEXT,
+    monster     TEXT,
+    result      TEXT,
+    xp_gained   INT DEFAULT 0,
     gold_gained INT DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS lessons (
-    id          SERIAL PRIMARY KEY,
-    subject     TEXT NOT NULL,
-    teacher     TEXT NOT NULL,
-    starts_at   TIMESTAMPTZ NOT NULL,
-    ends_at     TIMESTAMPTZ NOT NULL,
-    is_active   BOOLEAN DEFAULT TRUE
+    id        SERIAL PRIMARY KEY,
+    subject   TEXT NOT NULL,
+    teacher   TEXT NOT NULL,
+    starts_at TIMESTAMPTZ NOT NULL,
+    ends_at   TIMESTAMPTZ NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS lesson_attendance (
@@ -163,60 +172,71 @@ CREATE TABLE IF NOT EXISTS lesson_attendance (
     lesson_id INT REFERENCES lessons(id),
     user_id   BIGINT REFERENCES users(user_id),
     rewarded  BOOLEAN DEFAULT FALSE,
+    score     INT DEFAULT 0,
     joined_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(lesson_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS quests (
-    id          SERIAL PRIMARY KEY,
-    quest_id    TEXT UNIQUE NOT NULL,
-    type        TEXT NOT NULL,
-    title_key   TEXT,
+    id              SERIAL PRIMARY KEY,
+    quest_id        TEXT UNIQUE NOT NULL,
+    type            TEXT NOT NULL,
+    title_key       TEXT,
     description_key TEXT,
-    is_active   BOOLEAN DEFAULT TRUE
+    is_active       BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS user_quests (
-    id        SERIAL PRIMARY KEY,
-    user_id   BIGINT REFERENCES users(user_id),
-    quest_id  TEXT,
-    step      INT DEFAULT 0,
-    status    TEXT DEFAULT 'active',
-    started_at TIMESTAMPTZ DEFAULT NOW(),
+    id           SERIAL PRIMARY KEY,
+    user_id      BIGINT REFERENCES users(user_id),
+    quest_id     TEXT,
+    step         INT DEFAULT 0,
+    status       TEXT DEFAULT 'active',
+    started_at   TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS house_points (
-    house     TEXT PRIMARY KEY,
-    points    INT DEFAULT 0,
+    house      TEXT PRIMARY KEY,
+    points     INT DEFAULT 0,
+    season     INT DEFAULT 1,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS house_points_log (
+    id         SERIAL PRIMARY KEY,
+    user_id    BIGINT REFERENCES users(user_id),
+    house      TEXT,
+    points     INT,
+    reason     TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS shop_items (
-    id          SERIAL PRIMARY KEY,
-    item_id     TEXT NOT NULL,
-    price_gold  INT NOT NULL,
-    stock       INT DEFAULT -1,
+    id              SERIAL PRIMARY KEY,
+    item_id         TEXT NOT NULL,
+    price_gold      INT NOT NULL,
+    stock           INT DEFAULT -1,
     available_until TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS auction_lots (
-    id           SERIAL PRIMARY KEY,
-    seller_id    BIGINT REFERENCES users(user_id),
-    item_id      TEXT NOT NULL,
-    start_price  INT NOT NULL,
+    id            SERIAL PRIMARY KEY,
+    seller_id     BIGINT REFERENCES users(user_id),
+    item_id       TEXT NOT NULL,
+    start_price   INT NOT NULL,
     current_price INT NOT NULL,
-    buyer_id     BIGINT,
-    status       TEXT DEFAULT 'active',
-    ends_at      TIMESTAMPTZ NOT NULL,
-    created_at   TIMESTAMPTZ DEFAULT NOW()
+    buyer_id      BIGINT,
+    status        TEXT DEFAULT 'active',
+    ends_at       TIMESTAMPTZ NOT NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS auction_bids (
-    id       SERIAL PRIMARY KEY,
-    lot_id   INT REFERENCES auction_lots(id),
+    id        SERIAL PRIMARY KEY,
+    lot_id    INT REFERENCES auction_lots(id),
     bidder_id BIGINT REFERENCES users(user_id),
-    amount   INT NOT NULL,
+    amount    INT NOT NULL,
     placed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -231,13 +251,16 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE TABLE IF NOT EXISTS daily_limits (
-    user_id        BIGINT REFERENCES users(user_id),
-    date           DATE DEFAULT CURRENT_DATE,
-    pvp_duels      INT DEFAULT 0,
-    pve_dungeons   INT DEFAULT 0,
-    pve_quests     INT DEFAULT 0,
-    lessons        INT DEFAULT 0,
-    auction_lots   INT DEFAULT 0,
+    user_id       BIGINT REFERENCES users(user_id),
+    date          DATE DEFAULT CURRENT_DATE,
+    pvp_duels     INT DEFAULT 0,
+    pve_dungeons  INT DEFAULT 0,
+    pve_quests    INT DEFAULT 0,
+    lessons       INT DEFAULT 0,
+    auction_lots  INT DEFAULT 0,
+    world_boss    INT DEFAULT 0,
+    room_req      INT DEFAULT 0,
+    hogsmeade     INT DEFAULT 0,
     PRIMARY KEY (user_id, date)
 );
 
@@ -250,8 +273,6 @@ CREATE TABLE IF NOT EXISTS admin_log (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ── ИСПРАВЛЕНИЕ 2: таблица для хранения состояний ConversationHandler в БД
--- Это заменяет PicklePersistence — данные не теряются при перезапуске Railway
 CREATE TABLE IF NOT EXISTS conversation_states (
     user_id    BIGINT PRIMARY KEY,
     state_key  TEXT,
@@ -259,8 +280,157 @@ CREATE TABLE IF NOT EXISTS conversation_states (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-INSERT INTO house_points (house, points)
-VALUES ('gryffindor', 0), ('slytherin', 0), ('ravenclaw', 0), ('hufflepuff', 0)
+-- ── ДОСТИЖЕНИЯ ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS achievements (
+    id          SERIAL PRIMARY KEY,
+    user_id     BIGINT REFERENCES users(user_id),
+    achievement TEXT NOT NULL,
+    tier        INT DEFAULT 1,
+    unlocked_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, achievement)
+);
+
+-- ── ТИТУЛЫ ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_titles (
+    id         SERIAL PRIMARY KEY,
+    user_id    BIGINT REFERENCES users(user_id),
+    title_id   TEXT NOT NULL,
+    earned_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, title_id)
+);
+
+-- ── ОТРЯДЫ ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS squads (
+    id          SERIAL PRIMARY KEY,
+    name        TEXT UNIQUE NOT NULL,
+    leader_id   BIGINT REFERENCES users(user_id),
+    description TEXT DEFAULT '',
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── ТУРНИРЫ ────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tournaments (
+    id         SERIAL PRIMARY KEY,
+    status     TEXT DEFAULT 'pending',
+    started_at TIMESTAMPTZ,
+    ended_at   TIMESTAMPTZ,
+    winner_id  BIGINT,
+    data       JSONB
+);
+
+CREATE TABLE IF NOT EXISTS tournament_participants (
+    id            SERIAL PRIMARY KEY,
+    tournament_id INT REFERENCES tournaments(id),
+    user_id       BIGINT REFERENCES users(user_id),
+    wins          INT DEFAULT 0,
+    losses        INT DEFAULT 0,
+    eliminated    BOOLEAN DEFAULT FALSE,
+    UNIQUE(tournament_id, user_id)
+);
+
+-- ── ТОРГОВЛЯ ───────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS trade_log (
+    id          SERIAL PRIMARY KEY,
+    sender_id   BIGINT REFERENCES users(user_id),
+    receiver_id BIGINT REFERENCES users(user_id),
+    amount      INT NOT NULL,
+    tax         INT DEFAULT 0,
+    note        TEXT,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── ЗЕЛЬЕВАРЕНИЕ ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS potion_recipes (
+    id         SERIAL PRIMARY KEY,
+    recipe_id  TEXT UNIQUE NOT NULL,
+    name_ru    TEXT,
+    rarity     TEXT DEFAULT 'common',
+    ingredients JSONB,
+    result_item TEXT,
+    is_active   BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS user_recipes (
+    id         SERIAL PRIMARY KEY,
+    user_id    BIGINT REFERENCES users(user_id),
+    recipe_id  TEXT NOT NULL,
+    learned_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, recipe_id)
+);
+
+CREATE TABLE IF NOT EXISTS brewing_queue (
+    id          SERIAL PRIMARY KEY,
+    user_id     BIGINT REFERENCES users(user_id),
+    recipe_id   TEXT NOT NULL,
+    started_at  TIMESTAMPTZ DEFAULT NOW(),
+    ready_at    TIMESTAMPTZ NOT NULL,
+    collected   BOOLEAN DEFAULT FALSE
+);
+
+-- ── МИРОВЫЕ БОССЫ ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS world_bosses (
+    id          SERIAL PRIMARY KEY,
+    boss_id     TEXT NOT NULL,
+    max_hp      INT NOT NULL,
+    current_hp  INT NOT NULL,
+    status      TEXT DEFAULT 'active',
+    started_at  TIMESTAMPTZ DEFAULT NOW(),
+    ended_at    TIMESTAMPTZ,
+    season      INT DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS world_boss_damage (
+    id            SERIAL PRIMARY KEY,
+    world_boss_id INT REFERENCES world_bosses(id),
+    user_id       BIGINT REFERENCES users(user_id),
+    damage        INT DEFAULT 0,
+    hits          INT DEFAULT 0,
+    UNIQUE(world_boss_id, user_id)
+);
+
+-- ── ЛОКАЦИИ (исследование) ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS location_progress (
+    user_id     BIGINT REFERENCES users(user_id),
+    location_id TEXT NOT NULL,
+    visits      INT DEFAULT 0,
+    last_visit  TIMESTAMPTZ,
+    PRIMARY KEY (user_id, location_id)
+);
+
+-- ── РЕЙТИНГИ (сезонные снимки) ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS season_ratings (
+    id          SERIAL PRIMARY KEY,
+    season      INT NOT NULL,
+    user_id     BIGINT REFERENCES users(user_id),
+    category    TEXT NOT NULL,
+    value       INT DEFAULT 0,
+    rank        INT,
+    snapshot_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── ХОГСМИД (магазин) ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS hogsmeade_stock (
+    id              SERIAL PRIMARY KEY,
+    item_id         TEXT NOT NULL,
+    price           INT NOT NULL,
+    quantity        INT DEFAULT 1,
+    is_rare         BOOLEAN DEFAULT FALSE,
+    refreshed_at    TIMESTAMPTZ DEFAULT NOW(),
+    available_until TIMESTAMPTZ
+);
+
+-- ── Комната Требований (ежедневные события) ────────────────────────────────
+CREATE TABLE IF NOT EXISTS room_of_requirement (
+    id           SERIAL PRIMARY KEY,
+    event_type   TEXT NOT NULL,
+    data         JSONB,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    date         DATE DEFAULT CURRENT_DATE
+);
+
+-- ── Начальные данные ───────────────────────────────────────────────────────
+INSERT INTO house_points (house, points, season)
+VALUES ('gryffindor', 0, 1), ('slytherin', 0, 1), ('ravenclaw', 0, 1), ('hufflepuff', 0, 1)
 ON CONFLICT DO NOTHING;
 """
 
@@ -272,7 +442,7 @@ def init_db():
     logger.info("Database initialised.")
 
 
-# ─── User helpers ─────────────────────────────────────────────────────────────
+# ─── User helpers ──────────────────────────────────────────────────────────────
 
 def get_user(user_id: int):
     with get_conn() as conn:
@@ -293,7 +463,7 @@ def create_user(user_id: int, username: str, wizard_name: str, house: str, lang:
     with get_conn() as conn:
         execute(conn, """
             INSERT INTO users (user_id, username, wizard_name, house, lang, gold, hp, max_hp, mana, max_mana)
-            VALUES (%s, %s, %s, %s, %s, 100, 100, 100, 50, 50)
+            VALUES (%s, %s, %s, %s, %s, 0, 100, 100, 50, 50)
             ON CONFLICT (user_id) DO NOTHING
         """, user_id, username, wizard_name, house, lang)
         execute(conn, "INSERT INTO user_stats (user_id) VALUES (%s) ON CONFLICT DO NOTHING", user_id)
@@ -321,7 +491,16 @@ def get_house_counts() -> dict:
 
 def get_house_points():
     with get_conn() as conn:
-        return fetchall(conn, "SELECT house, points FROM house_points ORDER BY points DESC")
+        return fetchall(conn, "SELECT house, points, season FROM house_points ORDER BY points DESC")
+
+
+def add_house_points(user_id: int, house: str, points: int, reason: str):
+    """Добавить очки факультету и записать в лог."""
+    with get_conn() as conn:
+        execute(conn, "UPDATE house_points SET points = points + %s WHERE house = %s", points, house)
+        execute(conn,
+            "INSERT INTO house_points_log (user_id, house, points, reason) VALUES (%s, %s, %s, %s)",
+            user_id, house, points, reason)
 
 
 def get_user_stats(user_id: int):
@@ -336,13 +515,14 @@ def get_spells_count(user_id: int) -> int:
 
 def add_xp(user_id: int, xp: int):
     """Add XP and handle level ups. Returns (new_level, leveled_up)."""
+    from config import XP_PER_LEVEL_BASE, XP_LEVEL_MULT
     user = get_user(user_id)
     new_xp = user["xp"] + xp
     level = user["level"]
     leveled_up = False
 
     while True:
-        needed = int(500 * level * (1.15 ** (level - 1)))
+        needed = int(XP_PER_LEVEL_BASE * level * (XP_LEVEL_MULT ** (level - 1)))
         if new_xp >= needed:
             new_xp -= needed
             level += 1
@@ -354,9 +534,9 @@ def add_xp(user_id: int, xp: int):
         if leveled_up:
             execute(conn, """
                 UPDATE users SET xp = %s, level = %s,
-                    max_hp = max_hp + 5, hp = LEAST(hp + 5, max_hp + 5),
-                    max_mana = max_mana + 3, mana = LEAST(mana + 3, max_mana + 3),
-                    attack = attack + 1, defense = defense + 1
+                    max_hp = max_hp + 8, hp = LEAST(hp + 8, max_hp + 8),
+                    max_mana = max_mana + 5, mana = LEAST(mana + 5, max_mana + 5),
+                    attack = attack + 2, defense = defense + 1
                 WHERE user_id = %s
             """, new_xp, level, user_id)
         else:
@@ -367,25 +547,29 @@ def add_xp(user_id: int, xp: int):
 
 def add_gold(user_id: int, amount: int):
     with get_conn() as conn:
-        execute(conn, "UPDATE users SET gold = gold + %s WHERE user_id = %s", amount, user_id)
+        execute(conn, "UPDATE users SET gold = GREATEST(0, gold + %s) WHERE user_id = %s", amount, user_id)
+    if amount > 0:
+        with get_conn() as conn:
+            execute(conn,
+                "UPDATE user_stats SET gold_earned = gold_earned + %s WHERE user_id = %s",
+                amount, user_id)
 
 
 def get_daily_limit(user_id: int, activity: str) -> int:
-    # ── ИСПРАВЛЕНИЕ 3 (защита от SQL-инъекций через whitelist)
-    allowed = {"pvp_duels", "pve_dungeons", "pve_quests", "lessons", "auction_lots"}
+    allowed = {"pvp_duels", "pve_dungeons", "pve_quests", "lessons",
+               "auction_lots", "world_boss", "room_req", "hogsmeade"}
     if activity not in allowed:
         raise ValueError(f"Unknown activity: {activity}")
     with get_conn() as conn:
         row = fetchrow(conn,
             f"SELECT {activity} FROM daily_limits WHERE user_id = %s AND date = CURRENT_DATE",
-            user_id
-        )
+            user_id)
         return row[activity] if row else 0
 
 
 def increment_daily(user_id: int, activity: str):
-    # ── ИСПРАВЛЕНИЕ 3 (защита от SQL-инъекций через whitelist)
-    allowed = {"pvp_duels", "pve_dungeons", "pve_quests", "lessons", "auction_lots"}
+    allowed = {"pvp_duels", "pve_dungeons", "pve_quests", "lessons",
+               "auction_lots", "world_boss", "room_req", "hogsmeade"}
     if activity not in allowed:
         raise ValueError(f"Unknown activity: {activity}")
     with get_conn() as conn:
@@ -397,17 +581,36 @@ def increment_daily(user_id: int, activity: str):
         """, user_id)
 
 
-def get_leaderboard(limit: int = 10):
+def get_leaderboard(category: str = "level", limit: int = 10):
+    """Многокатегорийный рейтинг."""
     with get_conn() as conn:
-        return fetchall(conn,
-            "SELECT wizard_name, house, level, xp FROM users ORDER BY level DESC, xp DESC LIMIT %s",
-            limit
-        )
+        if category == "level":
+            return fetchall(conn,
+                "SELECT wizard_name, house, level, xp FROM users ORDER BY level DESC, xp DESC LIMIT %s",
+                limit)
+        elif category == "gold":
+            return fetchall(conn,
+                "SELECT wizard_name, house, gold FROM users ORDER BY gold DESC LIMIT %s",
+                limit)
+        elif category == "pvp":
+            return fetchall(conn, """
+                SELECT u.wizard_name, u.house, s.pvp_wins
+                FROM users u JOIN user_stats s ON u.user_id = s.user_id
+                ORDER BY s.pvp_wins DESC LIMIT %s
+            """, limit)
+        elif category == "pve":
+            return fetchall(conn, """
+                SELECT u.wizard_name, u.house, s.pve_kills
+                FROM users u JOIN user_stats s ON u.user_id = s.user_id
+                ORDER BY s.pve_kills DESC LIMIT %s
+            """, limit)
+        else:
+            return []
 
 
 def reset_house_cup_points():
     with get_conn() as conn:
-        execute(conn, "UPDATE house_points SET points = 0, updated_at = NOW()")
+        execute(conn, "UPDATE house_points SET points = 0, season = season + 1, updated_at = NOW()")
 
 
 def ban_user(user_id: int):
@@ -436,12 +639,114 @@ def log_admin_action(admin_id: int, action: str, target_id: int = None, details:
     with get_conn() as conn:
         execute(conn,
             "INSERT INTO admin_log (admin_id, action, target_id, details) VALUES (%s, %s, %s, %s)",
-            admin_id, action, target_id, details
-        )
+            admin_id, action, target_id, details)
 
 
-# ─── ИСПРАВЛЕНИЕ 2: сохранение состояний ConversationHandler в БД ─────────────
-# Это нужно чтобы при перезапуске Railway игроки не теряли прогресс регистрации
+# ─── Достижения ────────────────────────────────────────────────────────────────
+
+def get_user_achievements(user_id: int):
+    with get_conn() as conn:
+        return fetchall(conn, "SELECT achievement, tier FROM achievements WHERE user_id = %s", user_id)
+
+
+def unlock_achievement(user_id: int, achievement: str, tier: int = 1):
+    with get_conn() as conn:
+        execute(conn, """
+            INSERT INTO achievements (user_id, achievement, tier)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, achievement) DO UPDATE SET tier = EXCLUDED.tier
+        """, user_id, achievement, tier)
+
+
+# ─── Отряды ────────────────────────────────────────────────────────────────────
+
+def get_squad(squad_id: int):
+    with get_conn() as conn:
+        return fetchrow(conn, "SELECT * FROM squads WHERE id = %s", squad_id)
+
+
+def get_squad_members(squad_id: int):
+    with get_conn() as conn:
+        return fetchall(conn,
+            "SELECT user_id, wizard_name, level FROM users WHERE squad_id = %s",
+            squad_id)
+
+
+def create_squad(name: str, leader_id: int) -> int:
+    with get_conn() as conn:
+        squad_id = fetchval(conn,
+            "INSERT INTO squads (name, leader_id) VALUES (%s, %s) RETURNING id",
+            name, leader_id)
+        execute(conn, "UPDATE users SET squad_id = %s WHERE user_id = %s", squad_id, leader_id)
+        return squad_id
+
+
+# ─── Мировые боссы ─────────────────────────────────────────────────────────────
+
+def get_active_world_boss():
+    with get_conn() as conn:
+        return fetchrow(conn,
+            "SELECT * FROM world_bosses WHERE status = 'active' ORDER BY started_at DESC LIMIT 1")
+
+
+def record_world_boss_damage(world_boss_id: int, user_id: int, damage: int):
+    with get_conn() as conn:
+        execute(conn, """
+            INSERT INTO world_boss_damage (world_boss_id, user_id, damage, hits)
+            VALUES (%s, %s, %s, 1)
+            ON CONFLICT (world_boss_id, user_id)
+            DO UPDATE SET damage = world_boss_damage.damage + EXCLUDED.damage,
+                          hits   = world_boss_damage.hits + 1
+        """, world_boss_id, user_id, damage)
+        execute(conn,
+            "UPDATE world_bosses SET current_hp = GREATEST(0, current_hp - %s) WHERE id = %s",
+            damage, world_boss_id)
+
+
+def get_world_boss_top(world_boss_id: int, limit: int = 10):
+    with get_conn() as conn:
+        return fetchall(conn, """
+            SELECT u.wizard_name, u.house, d.damage, d.hits
+            FROM world_boss_damage d
+            JOIN users u ON d.user_id = u.user_id
+            WHERE d.world_boss_id = %s
+            ORDER BY d.damage DESC LIMIT %s
+        """, world_boss_id, limit)
+
+
+# ─── Зельеварение ──────────────────────────────────────────────────────────────
+
+def get_user_recipes(user_id: int):
+    with get_conn() as conn:
+        return fetchall(conn, """
+            SELECT r.* FROM potion_recipes r
+            JOIN user_recipes ur ON r.recipe_id = ur.recipe_id
+            WHERE ur.user_id = %s
+        """, user_id)
+
+
+def get_brewing_queue(user_id: int):
+    with get_conn() as conn:
+        return fetchall(conn, """
+            SELECT * FROM brewing_queue
+            WHERE user_id = %s AND collected = FALSE
+            ORDER BY ready_at ASC
+        """, user_id)
+
+
+# ─── Торговля ──────────────────────────────────────────────────────────────────
+
+def transfer_gold(sender_id: int, receiver_id: int, amount: int, tax: int, note: str = ""):
+    with get_conn() as conn:
+        execute(conn, "UPDATE users SET gold = gold - %s WHERE user_id = %s", amount + tax, sender_id)
+        execute(conn, "UPDATE users SET gold = gold + %s WHERE user_id = %s", amount, receiver_id)
+        execute(conn, """
+            INSERT INTO trade_log (sender_id, receiver_id, amount, tax, note)
+            VALUES (%s, %s, %s, %s, %s)
+        """, sender_id, receiver_id, amount, tax, note)
+
+
+# ─── ConversationHandler states ────────────────────────────────────────────────
 
 def save_conv_state(user_id: int, state_key: str, state_data: dict):
     import json
@@ -461,8 +766,7 @@ def load_conv_state(user_id: int) -> dict | None:
     with get_conn() as conn:
         row = fetchrow(conn,
             "SELECT state_key, state_data FROM conversation_states WHERE user_id = %s",
-            user_id
-        )
+            user_id)
         if not row:
             return None
         return {
