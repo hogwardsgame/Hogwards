@@ -435,9 +435,17 @@ ON CONFLICT DO NOTHING;
 """
 
 
+MIGRATION_SQL = """
+-- ── Миграции (добавляем недостающие колонки если таблица уже существует) ───
+ALTER TABLE house_points ADD COLUMN IF NOT EXISTS season INT DEFAULT 1;
+ALTER TABLE house_points ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+"""
+
+
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute(MIGRATION_SQL)
             cur.execute(CREATE_TABLES_SQL)
     logger.info("Database initialised.")
 
