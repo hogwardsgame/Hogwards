@@ -37,8 +37,11 @@ from handlers.lessons   import register_lessons_handlers
 from handlers.shop      import register_shop_handlers
 from handlers.inventory import register_inventory_handlers
 from handlers.auction   import register_auction_handlers
-from handlers.quests    import register_quests_handlers
-from handlers.events    import register_events_handlers
+from handlers.quests          import register_quests_handlers
+from handlers.events          import register_events_handlers
+from handlers.house_points    import register_house_points_handlers
+from handlers.room_of_requirement import register_room_handlers
+from handlers.hogsmeade       import register_hogsmeade_handlers
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -157,6 +160,9 @@ def main():
     register_auction_handlers(app)
     register_quests_handlers(app)
     register_events_handlers(app)
+    register_house_points_handlers(app)
+    register_room_handlers(app)
+    register_hogsmeade_handlers(app)
 
     logger.info("🧙 Hogwarts Bot starting...")
     app.run_polling(drop_pending_updates=True)
