@@ -1,6 +1,6 @@
 import re
 import random
-from config import HOUSES, HOUSE_SPELLS
+from config import HOUSES, HOUSE_SPELLS, XP_PER_LEVEL_BASE, XP_LEVEL_MULT
 
 
 def validate_wizard_name(name: str) -> str | None:
@@ -38,7 +38,14 @@ def get_starter_spell(house: str) -> str:
 
 
 def xp_needed_for_level(level: int) -> int:
-    return int(500 * level * (1.15 ** (level - 1)))
+    """Сколько опыта нужно для перехода с текущего уровня на следующий.
+
+    Важно: эта формула должна быть такой же, как в database.add_xp().
+    Раньше здесь стояла старая формула 500/1.15, а в database.py — новая
+    1200/1.20. Из-за этого в профиле могло быть написано, что опыта уже
+    хватает, но уровень не повышался.
+    """
+    return int(XP_PER_LEVEL_BASE * level * (XP_LEVEL_MULT ** (level - 1)))
 
 
 def house_emoji(house: str) -> str:
