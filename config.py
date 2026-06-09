@@ -9,7 +9,20 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 _raw_db_url = os.getenv("DATABASE_URL", "")
 DATABASE_URL = _raw_db_url.replace("postgres://", "postgresql://", 1)
 
-ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_ID", "0").split(",") if x]
+def _parse_admin_ids() -> list[int]:
+    raw = os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID") or ""
+    ids: list[int] = []
+    for part in raw.replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            continue
+    return ids
+
+ADMIN_IDS = _parse_admin_ids()
 
 LANGUAGES = ["ru", "en", "es", "de", "pt"]
 

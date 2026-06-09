@@ -117,7 +117,8 @@ CREATE TABLE IF NOT EXISTS inventory (
     user_id     BIGINT REFERENCES users(user_id),
     item_id     TEXT NOT NULL,
     quantity    INT DEFAULT 1,
-    acquired_at TIMESTAMPTZ DEFAULT NOW()
+    acquired_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, item_id)
 );
 
 CREATE TABLE IF NOT EXISTS equipped_items (
@@ -439,14 +440,44 @@ MIGRATION_SQL = """
 -- ── Миграции (добавляем недостающие колонки если таблица уже существует) ───
 ALTER TABLE house_points ADD COLUMN IF NOT EXISTS season INT DEFAULT 1;
 ALTER TABLE house_points ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- В старых базах у одного игрока могло быть несколько строк одного предмета.
+-- Перед уникальным индексом складываем количество в одну строку.
+WITH summed AS (
+    SELECT user_id, item_id, MIN(id) AS keep_id, SUM(quantity) AS total_quantity
+    FROM inventory
+    GROUP BY user_id, item_id
+    HAVING COUNT(*) > 1
+)
+UPDATE inventory i
+SET quantity = summed.total_quantity
+FROM summed
+WHERE i.id = summed.keep_id;
+
+WITH summed AS (
+    SELECT user_id, item_id, MIN(id) AS keep_id
+    FROM inventory
+    GROUP BY user_id, item_id
+    HAVING COUNT(*) > 1
+)
+DELETE FROM inventory i
+USING summed
+WHERE i.user_id = summed.user_id
+  AND i.item_id = summed.item_id
+  AND i.id <> summed.keep_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS inventory_user_item_unique
+ON inventory(user_id, item_id);
 """
 
 
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(MIGRATION_SQL)
+            # Сначала создаём таблицы, потом применяем миграции.
+            # Иначе на чистой базе ALTER TABLE падает, потому что таблиц ещё нет.
             cur.execute(CREATE_TABLES_SQL)
+            cur.execute(MIGRATION_SQL)
     logger.info("Database initialised.")
 
 
@@ -479,6 +510,22 @@ def create_user(user_id: int, username: str, wizard_name: str, house: str, lang:
             INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s)
             ON CONFLICT DO NOTHING
         """, user_id, starter_spell)
+
+
+def add_item_to_inventory(user_id: int, item_id: str, quantity: int = 1):
+    """Безопасно добавить предмет в инвентарь.
+    Если такой предмет уже есть — увеличиваем количество, а не создаём дубль.
+    """
+    if quantity <= 0:
+        return
+    with get_conn() as conn:
+        execute(conn, """
+            INSERT INTO inventory (user_id, item_id, quantity)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, item_id)
+            DO UPDATE SET quantity = inventory.quantity + EXCLUDED.quantity
+        """, user_id, item_id, quantity)
+
 
 
 def set_user_lang(user_id: int, lang: str):
