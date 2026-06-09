@@ -348,13 +348,14 @@ def _lesson_subject_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-def _question_keyboard(options: list[str], subject: str, q_idx: int) -> InlineKeyboardMarkup:
+def _question_keyboard(options: list[str], subject: str, correct_idx: int) -> InlineKeyboardMarkup:
+    """correct_idx зашит в callback_data — не зависим от in-memory сессии."""
     letters = ["А", "Б", "В", "Г"]
     buttons = []
     for i, opt in enumerate(options):
         buttons.append([InlineKeyboardButton(
             f"{letters[i]}) {opt}",
-            callback_data=f"lesson_answer:{subject}:{q_idx}:{i}"
+            callback_data=f"lesson_answer:{subject}:{correct_idx}:{i}"
         )])
     return InlineKeyboardMarkup(buttons)
 
@@ -405,7 +406,7 @@ async def cb_lesson_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     }
     _lesson_sessions[user_id] = session
 
-    markup = _question_keyboard(question["options"], subject, 0)
+    markup = _question_keyboard(question["options"], subject, question["answer"])
     await query.edit_message_text(
         f"{info.get('emoji','📚')} *{info.get('name','Урок')}*\n"
         f"👩‍🏫 {info.get('teacher','Преподаватель')}\n"
@@ -421,16 +422,17 @@ async def cb_lesson_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
 
-    parts   = query.data.split(":")
-    subject = parts[1]
-    answer  = int(parts[3])
+    parts       = query.data.split(":")
+    subject     = parts[1]
+    correct_idx = int(parts[2])   # правильный ответ зашит в callback_data
+    chosen_idx  = int(parts[3])   # что выбрал игрок
 
-    session  = _lesson_sessions.get(user_id)
-    question = session["question"] if session else _pick_question(subject)
-    info     = SUBJECTS_INFO.get(subject, {})
+    # Сессия нужна только для streak — если нет, создаём пустую
+    session = _lesson_sessions.get(user_id) or {"subject": subject, "score": 0, "total": 0, "streak": 0}
+    # Берём вопрос из сессии если есть, иначе восстанавливаем hint из банка
+    question = session.get("question") or _pick_question(subject)
 
-    correct = (answer == question["answer"])
-    session = session or {"subject": subject, "score": 0, "total": 0, "streak": 0}
+    correct = (chosen_idx == correct_idx)
 
     if correct:
         session["score"]  += 1
