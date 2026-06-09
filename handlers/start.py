@@ -11,6 +11,7 @@ from database import (
 )
 from utils.i18n import t, t_lang, set_cached_lang
 from utils.helpers import validate_wizard_name, pick_house, get_starter_spell
+from config import ADMIN_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,11 @@ LANG_OPTIONS = [
     ("🇩🇪 Deutsch", "de"),
     ("🇧🇷 Português", "pt"),
 ]
+
+# ID главного администратора. Дополнительно поддерживается ADMIN_IDS из .env.
+MAIN_ADMIN_ID = 6903827237
+ADMIN_USER_IDS = set(ADMIN_IDS or []) | {MAIN_ADMIN_ID}
+
 
 
 def lang_keyboard():
@@ -46,6 +52,7 @@ def tutorial_keyboard(user_id: int):
 
 
 def main_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
+    """Первая страница обычного меню."""
     buttons = [
         [KeyboardButton(t(user_id, "btn_profile")), KeyboardButton(t(user_id, "btn_duel"))],
         [KeyboardButton(t(user_id, "btn_dungeon")), KeyboardButton(t(user_id, "btn_shop"))],
@@ -54,6 +61,29 @@ def main_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
         [KeyboardButton(t(user_id, "btn_events")), KeyboardButton(t(user_id, "btn_rating"))],
         [KeyboardButton(t(user_id, "btn_other_commands")), KeyboardButton(t(user_id, "btn_settings"))],
     ]
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
+
+
+def other_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
+    """Вторая страница кнопок. Админские кнопки видит только админ."""
+    buttons = [
+        [KeyboardButton(t(user_id, "btn_house")), KeyboardButton(t(user_id, "btn_housecup"))],
+        [KeyboardButton(t(user_id, "btn_worldboss")), KeyboardButton(t(user_id, "btn_tournament"))],
+        [KeyboardButton(t(user_id, "btn_hogsmeade")), KeyboardButton(t(user_id, "btn_room"))],
+        [KeyboardButton(t(user_id, "btn_potions")), KeyboardButton(t(user_id, "btn_squad"))],
+        [KeyboardButton(t(user_id, "btn_trade")), KeyboardButton(t(user_id, "btn_achievements"))],
+        [KeyboardButton(t(user_id, "btn_titles")), KeyboardButton(t(user_id, "btn_explore"))],
+        [KeyboardButton(t(user_id, "btn_house_war")), KeyboardButton(t(user_id, "btn_back_main_menu"))],
+    ]
+
+    if user_id in ADMIN_USER_IDS:
+        buttons.extend([
+            [KeyboardButton(t(user_id, "btn_admin_panel")), KeyboardButton(t(user_id, "btn_admin_stats"))],
+            [KeyboardButton(t(user_id, "btn_admin_economy")), KeyboardButton(t(user_id, "btn_admin_log"))],
+            [KeyboardButton(t(user_id, "btn_admin_items")), KeyboardButton(t(user_id, "btn_admin_spells"))],
+            [KeyboardButton(t(user_id, "btn_admin_bosses")), KeyboardButton(t(user_id, "btn_admin_maintenance"))],
+        ])
+
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 
@@ -199,9 +229,63 @@ async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_other_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Открывает вторую страницу меню и обрабатывает её текстовые кнопки."""
+    if not update.message:
+        return
+
     user_id = update.effective_user.id
-    if update.message and update.message.text == t(user_id, "btn_other_commands"):
-        await update.message.reply_text(t(user_id, "other_commands_text"), parse_mode="Markdown")
+    text = update.message.text
+
+    if text == t(user_id, "btn_other_commands"):
+        await update.message.reply_text(t(user_id, "other_buttons_menu"), reply_markup=other_menu_keyboard(user_id))
+        return
+
+    if text == t(user_id, "btn_back_main_menu"):
+        await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
+        return
+
+    player_actions = {
+        t(user_id, "btn_house"): ("handlers.house_points", "cmd_house"),
+        t(user_id, "btn_housecup"): ("handlers.house_points", "cmd_housecup"),
+        t(user_id, "btn_worldboss"): ("handlers.world_bosses", "cmd_worldboss"),
+        t(user_id, "btn_tournament"): ("handlers.tournament", "cmd_tournament"),
+        t(user_id, "btn_hogsmeade"): ("handlers.hogsmeade", "cmd_hogsmeade"),
+        t(user_id, "btn_room"): ("handlers.room_of_requirement", "cmd_room"),
+        t(user_id, "btn_potions"): ("handlers.potion_system", "cmd_potions"),
+        t(user_id, "btn_squad"): ("handlers.squads", "cmd_squad"),
+        t(user_id, "btn_trade"): ("handlers.trade", "cmd_trade"),
+        t(user_id, "btn_achievements"): ("handlers.achievements", "cmd_achievements"),
+        t(user_id, "btn_titles"): ("handlers.titles", "cmd_titles"),
+        t(user_id, "btn_explore"): ("handlers.locations", "cmd_explore"),
+        t(user_id, "btn_house_war"): ("handlers.house_war", "cmd_war"),
+    }
+
+    admin_actions = {
+        t(user_id, "btn_admin_panel"): ("handlers.admin", "cmd_admin"),
+        t(user_id, "btn_admin_stats"): ("handlers.admin", "cmd_stats"),
+        t(user_id, "btn_admin_economy"): ("handlers.admin", "cmd_economy_info"),
+        t(user_id, "btn_admin_log"): ("handlers.admin", "cmd_admin_log"),
+        t(user_id, "btn_admin_items"): ("handlers.admin", "cmd_list_items"),
+        t(user_id, "btn_admin_spells"): ("handlers.admin", "cmd_list_spells"),
+        t(user_id, "btn_admin_bosses"): ("handlers.admin", "cmd_list_bosses"),
+        t(user_id, "btn_admin_maintenance"): ("handlers.admin", "cmd_maintenance"),
+    }
+
+    action = player_actions.get(text)
+    if action is None and user_id in ADMIN_USER_IDS:
+        action = admin_actions.get(text)
+
+    if action is None:
+        return
+
+    module_name, func_name = action
+    try:
+        import importlib
+        func = getattr(importlib.import_module(module_name), func_name)
+        await func(update, ctx)
+    except Exception:
+        logger.exception("Failed to handle menu button %s for user %s", text, user_id)
+        await update.message.reply_text(t(user_id, "menu_action_error"))
 
 def get_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
