@@ -579,3 +579,109 @@ def spell_display_name(spell_id: str, lang: str = "ru") -> str:
     }
     entry = names.get(spell_id, {})
     return entry.get(lang, entry.get("ru", spell_id.replace("_", " ").title()))
+
+
+SPELL_TYPE_LABELS = {
+    "ru": {"attack": "Атака", "defense": "Защита", "heal": "Лечение", "debuff": "Контроль/ослабление"},
+    "en": {"attack": "Attack", "defense": "Defense", "heal": "Healing", "debuff": "Control/debuff"},
+    "es": {"attack": "Ataque", "defense": "Defensa", "heal": "Curación", "debuff": "Control/debilitación"},
+    "de": {"attack": "Angriff", "defense": "Verteidigung", "heal": "Heilung", "debuff": "Kontrolle/Schwächung"},
+    "pt": {"attack": "Ataque", "defense": "Defesa", "heal": "Cura", "debuff": "Controle/enfraquecimento"},
+}
+
+SPELL_EFFECT_LABELS = {
+    "ru": {"disarm": "разоружение", "stun": "оглушение", "confuse": "замешательство", "block": "блок урона", "reflect": "отражение урона", "burn": "горение", "freeze": "заморозка", "blind": "ослепление", "cleanse": "очищение", "slow": "замедление", "silence": "молчание", "shield": "щит", "weaken": "ослабление", "curse": "проклятие", "poison": "яд", "dispel": "снятие эффектов", "instant_kill": "мгновенная победа", "lifesteal": "вампиризм"},
+    "en": {"disarm": "disarm", "stun": "stun", "confuse": "confusion", "block": "damage block", "reflect": "damage reflect", "burn": "burn", "freeze": "freeze", "blind": "blind", "cleanse": "cleanse", "slow": "slow", "silence": "silence", "shield": "shield", "weaken": "weaken", "curse": "curse", "poison": "poison", "dispel": "dispel", "instant_kill": "instant win", "lifesteal": "lifesteal"},
+    "es": {}, "de": {}, "pt": {},
+}
+
+RARITY_NAMES_LOCALIZED = {
+    "ru": RARITY_NAMES_RU,
+    "en": {"common": "Common", "uncommon": "Uncommon", "rare": "Rare", "very_rare": "Very rare", "epic": "Epic", "legendary": "Legendary", "mythical": "Mythical"},
+    "es": {"common": "Común", "uncommon": "Poco común", "rare": "Raro", "very_rare": "Muy raro", "epic": "Épico", "legendary": "Legendario", "mythical": "Mítico"},
+    "de": {"common": "Gewöhnlich", "uncommon": "Ungewöhnlich", "rare": "Selten", "very_rare": "Sehr selten", "epic": "Episch", "legendary": "Legendär", "mythical": "Mythisch"},
+    "pt": {"common": "Comum", "uncommon": "Incomum", "rare": "Raro", "very_rare": "Muito raro", "epic": "Épico", "legendary": "Lendário", "mythical": "Mítico"},
+}
+
+
+def _lang(lang: str) -> str:
+    return lang if lang in ("ru", "en", "es", "de", "pt") else "ru"
+
+
+def spell_rarity_label(rarity: str, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    return RARITY_NAMES_LOCALIZED.get(lang, RARITY_NAMES_LOCALIZED["ru"]).get(rarity, rarity)
+
+
+def spell_type_label(spell_type: str, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    return SPELL_TYPE_LABELS.get(lang, SPELL_TYPE_LABELS["ru"]).get(spell_type, spell_type)
+
+
+def spell_effect_label(effect: str | None, lang: str = "ru") -> str:
+    if not effect:
+        return "—"
+    lang = _lang(lang)
+    return SPELL_EFFECT_LABELS.get(lang, SPELL_EFFECT_LABELS["ru"]).get(effect) or SPELL_EFFECT_LABELS["ru"].get(effect, effect)
+
+
+def spell_description(spell: dict, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    if spell.get(f"desc_{lang}"):
+        return spell[f"desc_{lang}"]
+    if lang == "ru":
+        return spell.get("desc_ru") or "Описание пока не добавлено."
+    # Human-readable fallback for all supported languages, so descriptions are never empty.
+    templates = {
+        "en": "Battle spell with clear mana cost, damage, healing and effect values.",
+        "es": "Hechizo de combate con coste de maná, daño, curación y efecto claros.",
+        "de": "Kampfzauber mit klaren Mana-, Schadens-, Heilungs- und Effektwerten.",
+        "pt": "Feitiço de combate com custo de mana, dano, cura e efeitos claros.",
+    }
+    return templates.get(lang, spell.get("desc_ru") or "Описание пока не добавлено.")
+
+
+def spell_stats_text(spell: dict, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    mana = int(spell.get("mana", 0) or 0)
+    damage = int(spell.get("damage", 0) or 0)
+    heal = int(spell.get("heal", 0) or 0)
+    effect = spell_effect_label(spell.get("effect"), lang)
+    chance = spell.get("effect_chance", 0) or 0
+    chance_text = f"{int(chance * 100)}%" if chance else "—"
+    shield = spell.get("shield_value")
+    min_level = spell.get("min_level")
+    if lang == "ru":
+        lines = [f"💧 Мана: {mana}", f"⚔️ Урон: {damage}", f"💚 Лечение: {heal}", f"✨ Эффект: {effect} ({chance_text})"]
+        if shield is not None:
+            lines.append(f"🛡️ Щит: {shield}")
+        if min_level is not None:
+            lines.append(f"🔒 Уровень: {min_level}+")
+    else:
+        lines = [f"💧 Mana: {mana}", f"⚔️ Damage: {damage}", f"💚 Heal: {heal}", f"✨ Effect: {effect} ({chance_text})"]
+        if shield is not None:
+            lines.append(f"🛡️ Shield: {shield}")
+        if min_level is not None:
+            lines.append(f"🔒 Level: {min_level}+")
+    return "\n".join(lines)
+
+
+def spell_card_text(spell_id: str, lang: str = "ru", include_id: bool = False) -> str:
+    spell = SPELLS[spell_id]
+    rarity = spell.get("rarity", "common")
+    lines = [
+        f"{spell.get('emoji', RARITY_EMOJI.get(rarity, '✨'))} *{spell_display_name(spell_id, lang)}*",
+        f"⭐ {spell_rarity_label(rarity, lang)} · {spell_type_label(spell.get('type', ''), lang)}",
+        f"📜 {spell_description(spell, lang)}",
+        spell_stats_text(spell, lang),
+    ]
+    if include_id:
+        lines.append(f"ID: `{spell_id}`")
+    return "\n".join(lines)
+
+
+for _spell in SPELLS.values():
+    _spell.setdefault("desc_en", spell_description(_spell, "en"))
+    _spell.setdefault("desc_es", spell_description(_spell, "es"))
+    _spell.setdefault("desc_de", spell_description(_spell, "de"))
+    _spell.setdefault("desc_pt", spell_description(_spell, "pt"))

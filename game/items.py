@@ -443,7 +443,7 @@ def roll_equipment(rarity: str | None = None) -> dict:
     slots = list(EQUIPMENT_SLOTS.keys())
     slot  = random.choice(slots)
     item  = ITEMS.get(f"{slot}_{rarity}", ITEMS[f"wand_{rarity}"]).copy()
-    bonus = random.randint(item["stat_min"], item["stat_max"])
+    bonus = item_stat_value(item)
     item["bonus"] = bonus
     return item
 
@@ -461,8 +461,192 @@ def generate_shop_inventory(size: int = 8) -> list[dict]:
     return result
 
 
+
+SUPPORTED_LANGS = ("ru", "en", "es", "de", "pt")
+
+STAT_LABELS = {
+    "ru": {"attack": "урону", "defense": "защите", "max_mana": "максимальной мане", "speed": "скорости", "luck": "удаче", "max_hp": "максимальному здоровью"},
+    "en": {"attack": "damage", "defense": "defense", "max_mana": "max mana", "speed": "speed", "luck": "luck", "max_hp": "max health"},
+    "es": {"attack": "daño", "defense": "defensa", "max_mana": "maná máximo", "speed": "velocidad", "luck": "suerte", "max_hp": "salud máxima"},
+    "de": {"attack": "Schaden", "defense": "Verteidigung", "max_mana": "max. Mana", "speed": "Tempo", "luck": "Glück", "max_hp": "max. Leben"},
+    "pt": {"attack": "dano", "defense": "defesa", "max_mana": "mana máxima", "speed": "velocidade", "luck": "sorte", "max_hp": "vida máxima"},
+}
+
+SLOT_LABELS = {
+    "ru": {"wand": "палочка", "robe": "мантия", "amulet": "амулет", "ring": "кольцо", "hat": "головной убор", "boots": "обувь", "gloves": "перчатки"},
+    "en": {"wand": "wand", "robe": "robe", "amulet": "amulet", "ring": "ring", "hat": "hat", "boots": "boots", "gloves": "gloves"},
+    "es": {"wand": "varita", "robe": "túnica", "amulet": "amuleto", "ring": "anillo", "hat": "sombrero", "boots": "botas", "gloves": "guantes"},
+    "de": {"wand": "Zauberstab", "robe": "Robe", "amulet": "Amulett", "ring": "Ring", "hat": "Hut", "boots": "Stiefel", "gloves": "Handschuhe"},
+    "pt": {"wand": "varinha", "robe": "manto", "amulet": "amuleto", "ring": "anel", "hat": "chapéu", "boots": "botas", "gloves": "luvas"},
+}
+
+RARITY_NAMES_LOCALIZED = {
+    "ru": RARITY_NAMES_RU,
+    "en": {"common": "Common", "uncommon": "Uncommon", "rare": "Rare", "very_rare": "Very rare", "epic": "Epic", "legendary": "Legendary", "mythical": "Mythical", "abyssal": "Abyssal"},
+    "es": {"common": "Común", "uncommon": "Poco común", "rare": "Raro", "very_rare": "Muy raro", "epic": "Épico", "legendary": "Legendario", "mythical": "Mítico", "abyssal": "Abisal"},
+    "de": {"common": "Gewöhnlich", "uncommon": "Ungewöhnlich", "rare": "Selten", "very_rare": "Sehr selten", "epic": "Episch", "legendary": "Legendär", "mythical": "Mythisch", "abyssal": "Abgründig"},
+    "pt": {"common": "Comum", "uncommon": "Incomum", "rare": "Raro", "very_rare": "Muito raro", "epic": "Épico", "legendary": "Lendário", "mythical": "Mítico", "abyssal": "Abissal"},
+}
+
+TYPE_LABELS = {
+    "ru": {"equipment": "Снаряжение", "consumable": "Расходник", "ingredient": "Ингредиент", "cosmetic": "Косметика"},
+    "en": {"equipment": "Equipment", "consumable": "Consumable", "ingredient": "Ingredient", "cosmetic": "Cosmetic"},
+    "es": {"equipment": "Equipo", "consumable": "Consumible", "ingredient": "Ingrediente", "cosmetic": "Cosmético"},
+    "de": {"equipment": "Ausrüstung", "consumable": "Verbrauchsgegenstand", "ingredient": "Zutat", "cosmetic": "Kosmetik"},
+    "pt": {"equipment": "Equipamento", "consumable": "Consumível", "ingredient": "Ingrediente", "cosmetic": "Cosmético"},
+}
+
+_EFFECT_LABELS = {
+    "ru": {"hp": "восстанавливает здоровье", "hp_full": "полностью лечит", "mana": "восстанавливает ману", "mana_full": "полностью восстанавливает ману", "attack_boost": "усиливает урон", "defense_boost": "усиливает защиту", "luck_boost": "повышает удачу", "xp_boost": "повышает опыт", "cleanse": "снимает негативные эффекты", "copycat": "копирует характеристики", "reveal": "раскрывает заклинания врага", "battle_stun": "оглушает врага", "restore": "снимает окаменение"},
+    "en": {"hp": "restores health", "hp_full": "fully heals", "mana": "restores mana", "mana_full": "fully restores mana", "attack_boost": "increases damage", "defense_boost": "increases defense", "luck_boost": "increases luck", "xp_boost": "increases experience", "cleanse": "removes negative effects", "copycat": "copies stats", "reveal": "reveals enemy spells", "battle_stun": "stuns the enemy", "restore": "removes petrification"},
+    "es": {"hp": "restaura salud", "hp_full": "cura por completo", "mana": "restaura maná", "mana_full": "restaura todo el maná", "attack_boost": "aumenta el daño", "defense_boost": "aumenta la defensa", "luck_boost": "aumenta la suerte", "xp_boost": "aumenta la experiencia", "cleanse": "elimina efectos negativos", "copycat": "copia estadísticas", "reveal": "revela hechizos enemigos", "battle_stun": "aturde al enemigo", "restore": "elimina petrificación"},
+    "de": {"hp": "stellt Leben wieder her", "hp_full": "heilt vollständig", "mana": "stellt Mana wieder her", "mana_full": "stellt Mana vollständig wieder her", "attack_boost": "erhöht Schaden", "defense_boost": "erhöht Verteidigung", "luck_boost": "erhöht Glück", "xp_boost": "erhöht Erfahrung", "cleanse": "entfernt negative Effekte", "copycat": "kopiert Werte", "reveal": "deckt gegnerische Zauber auf", "battle_stun": "betäubt den Gegner", "restore": "hebt Versteinerung auf"},
+    "pt": {"hp": "restaura vida", "hp_full": "cura completamente", "mana": "restaura mana", "mana_full": "restaura toda a mana", "attack_boost": "aumenta dano", "defense_boost": "aumenta defesa", "luck_boost": "aumenta sorte", "xp_boost": "aumenta experiência", "cleanse": "remove efeitos negativos", "copycat": "copia atributos", "reveal": "revela feitiços inimigos", "battle_stun": "atordoa o inimigo", "restore": "remove petrificação"},
+}
+
+# Итоговый баланс: теперь у предмета всегда одна понятная цифра, а не разброс.
+RARITY_FIXED_BONUS = {
+    "common": 2,
+    "uncommon": 5,
+    "rare": 10,
+    "very_rare": 18,
+    "epic": 30,
+    "legendary": 48,
+    "mythical": 72,
+    "abyssal": 110,
+}
+
+SPECIAL_TEXT = {
+    "ru": {"evasion_15": "15% шанс уклониться от атаки", "intimidate_10": "снижает атаку врага на 10%", "regen_5": "восстанавливает 5 HP каждый ход", "dark_boost_20": "+20% к тёмной магии", "double_cast_10": "10% шанс повторить заклинание бесплатно", "cheat_death_20": "20% шанс выжить с 1 HP", "heal_boost_10": "+10% к лечению", "auto_spell": "помогает выбрать лучшее заклинание", "evasion_20": "20% шанс уклониться", "poison_on_hit_15": "15% шанс отравить врага"},
+    "en": {"evasion_15": "15% chance to dodge an attack", "intimidate_10": "reduces enemy attack by 10%", "regen_5": "restores 5 HP each turn", "dark_boost_20": "+20% dark magic damage", "double_cast_10": "10% chance to recast for free", "cheat_death_20": "20% chance to survive at 1 HP", "heal_boost_10": "+10% healing", "auto_spell": "helps choose the best spell", "evasion_20": "20% dodge chance", "poison_on_hit_15": "15% chance to poison the enemy"},
+    "es": {}, "de": {}, "pt": {},
+}
+
+
+def _lang(lang: str) -> str:
+    return lang if lang in SUPPORTED_LANGS else "ru"
+
+
+def stat_label(stat: str, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    return STAT_LABELS.get(lang, STAT_LABELS["ru"]).get(stat, stat)
+
+
+def slot_label(slot: str, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    return SLOT_LABELS.get(lang, SLOT_LABELS["ru"]).get(slot, slot)
+
+
+def rarity_label(rarity: str, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    return RARITY_NAMES_LOCALIZED.get(lang, RARITY_NAMES_LOCALIZED["ru"]).get(rarity, rarity)
+
+
+def type_label(item_type: str, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    return TYPE_LABELS.get(lang, TYPE_LABELS["ru"]).get(item_type, item_type)
+
+
+def item_stat_value(item: dict) -> int:
+    if "bonus" in item and item.get("bonus") is not None:
+        return int(item["bonus"])
+    if "stat_value" in item and item.get("stat_value") is not None:
+        return int(item["stat_value"])
+    rarity = item.get("rarity", "common")
+    fixed = RARITY_FIXED_BONUS.get(rarity)
+    if fixed is not None:
+        return int(fixed)
+    return int(round((item.get("stat_min", 0) + item.get("stat_max", 0)) / 2))
+
+
+def _default_desc(item: dict, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    item_type = item.get("type")
+    if item_type == "equipment":
+        if lang == "ru":
+            return f"Надёжное снаряжение: {slot_label(item.get('slot', ''), lang)}. Усиливает персонажа без случайного разброса характеристик."
+        if lang == "en":
+            return f"Reliable {slot_label(item.get('slot', ''), lang)} equipment. Gives a fixed stat bonus with no random spread."
+        if lang == "es":
+            return f"Equipo fiable: {slot_label(item.get('slot', ''), lang)}. Da una bonificación fija sin valores aleatorios."
+        if lang == "de":
+            return f"Zuverlässige Ausrüstung: {slot_label(item.get('slot', ''), lang)}. Gibt einen festen Bonus ohne Zufallsbereich."
+        return f"Equipamento confiável: {slot_label(item.get('slot', ''), lang)}. Dá um bônus fixo sem variação aleatória."
+    if item_type == "consumable":
+        effect = _EFFECT_LABELS.get(lang, _EFFECT_LABELS["ru"]).get(item.get("effect"), item.get("effect", "effect"))
+        return {"ru": f"Расходный предмет: {effect}.", "en": f"Consumable item: {effect}.", "es": f"Objeto consumible: {effect}.", "de": f"Verbrauchsgegenstand: {effect}.", "pt": f"Item consumível: {effect}."}.get(lang)
+    if item_type == "ingredient":
+        return {"ru": "Ингредиент для зелий и игровых активностей.", "en": "Ingredient for potions and game activities.", "es": "Ingrediente para pociones y actividades.", "de": "Zutat für Tränke und Spielaktivitäten.", "pt": "Ingrediente para poções e atividades."}.get(lang)
+    if item_type == "cosmetic":
+        return {"ru": "Косметический предмет для оформления персонажа.", "en": "Cosmetic item for character customization.", "es": "Objeto cosmético para personalizar al personaje.", "de": "Kosmetikgegenstand zur Charakteranpassung.", "pt": "Item cosmético para personalizar o personagem."}.get(lang)
+    return item.get("desc_ru") or item.get("description") or "Описание пока не добавлено."
+
+
 def item_display_name(item: dict, lang: str = "ru") -> str:
+    lang = _lang(lang)
     name = item.get("name", {})
     if isinstance(name, dict):
-        return name.get(lang, name.get("en", item["id"]))
+        return name.get(lang) or name.get("ru") or name.get("en") or item.get("id", "item")
     return str(name)
+
+
+def item_description(item: dict, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    return item.get(f"desc_{lang}") or item.get("desc_ru") or item.get("description") or _default_desc(item, lang)
+
+
+def item_bonus_text(item: dict, lang: str = "ru") -> str:
+    lang = _lang(lang)
+    if item.get("type") == "equipment":
+        stat = item.get("stat", "")
+        bonus = item_stat_value(item)
+        if lang == "ru":
+            text = f"📈 Характеристика: +{bonus} к {stat_label(stat, lang)}"
+        elif lang == "en":
+            text = f"📈 Stat: +{bonus} {stat_label(stat, lang)}"
+        elif lang == "es":
+            text = f"📈 Atributo: +{bonus} {stat_label(stat, lang)}"
+        elif lang == "de":
+            text = f"📈 Wert: +{bonus} {stat_label(stat, lang)}"
+        else:
+            text = f"📈 Atributo: +{bonus} {stat_label(stat, lang)}"
+        special = item.get("special")
+        special_text = SPECIAL_TEXT.get(lang, {}).get(special) or SPECIAL_TEXT["ru"].get(special)
+        if special_text:
+            text += f"\n✨ Особенность: {special_text}" if lang == "ru" else f"\n✨ Special: {special_text}"
+        return text
+    if item.get("type") == "consumable":
+        effect = _EFFECT_LABELS.get(lang, _EFFECT_LABELS["ru"]).get(item.get("effect"), item.get("effect", "effect"))
+        value = item.get("value")
+        duration = item.get("duration")
+        value_text = ""
+        if isinstance(value, float):
+            value_text = f" {int(value * 100)}%"
+        elif isinstance(value, int) and value not in (0, 1, 9999):
+            value_text = f" {value}"
+        duration_text = f", {duration // 60} мин." if isinstance(duration, int) and duration >= 60 and lang == "ru" else ""
+        return f"✨ Эффект: {effect}{value_text}{duration_text}" if lang == "ru" else f"✨ Effect: {effect}{value_text}"
+    return ""
+
+
+def item_card_text(item: dict, lang: str = "ru", include_id: bool = False) -> str:
+    rarity = item.get("rarity", "common")
+    lines = [
+        f"{RARITY_NAMES.get(rarity, '⬜')} *{item_display_name(item, lang)}*",
+        f"⭐ {rarity_label(rarity, lang)} · {type_label(item.get('type', 'item'), lang)}",
+        f"📜 {item_description(item, lang)}",
+    ]
+    bonus = item_bonus_text(item, lang)
+    if bonus:
+        lines.append(bonus)
+    if include_id:
+        lines.append(f"ID: `{item.get('id')}`")
+    return "\n".join(lines)
+
+
+# Заполняем отсутствующие описания и фиксированные бонусы сразу при импорте.
+for _item in ITEMS.values():
+    if _item.get("type") == "equipment":
+        _item.setdefault("stat_value", item_stat_value(_item))
+    for _lang_code in SUPPORTED_LANGS:
+        _item.setdefault(f"desc_{_lang_code}", _item.get(f"desc_{_lang_code}") or (_item.get("desc_ru") if _lang_code == "ru" else _default_desc(_item, _lang_code)))

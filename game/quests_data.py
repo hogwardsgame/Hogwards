@@ -204,6 +204,85 @@ QUESTS: dict[str, dict] = {
 }
 
 
+
+# Улучшенные сюжетные квесты 6-10: раньше они завершались без понятных шагов.
+QUESTS["sq_06_troll"].update({
+    "name": {"ru": "Тролль в подземелье", "en": "Troll in the Dungeon"},
+    "description": {"ru": "Помоги ученикам выбраться из опасного коридора и останови тролля.", "en": "Help students escape a dangerous corridor and stop the troll."},
+    "steps": [
+        {"text": {"ru": "По коридору несётся крик: в подземелье тролль. Что делаешь?", "en": "A shout echoes: troll in the dungeon. What do you do?"}, "choices": [{"text": {"ru": "Предупредить учеников", "en": "Warn students"}, "next": 1, "bonus": "xp_40"}, {"text": {"ru": "Сразу бежать к шуму", "en": "Run to the noise"}, "next": 2, "bonus": None}]},
+        {"text": {"ru": "Ученики спасены, но тролль ломает дверь. Нужен план.", "en": "The students are safe, but the troll breaks the door. Need a plan."}, "choices": [{"text": {"ru": "Отвлечь тролля чарами", "en": "Distract with charms"}, "next": "end", "bonus": "spell_random"}, {"text": {"ru": "Увести всех через боковой проход", "en": "Lead everyone through a side passage"}, "next": "end", "bonus": "gold_90"}]},
+        {"text": {"ru": "Ты один у входа. Тролль поднимает дубину.", "en": "You stand at the entrance. The troll raises a club."}, "choices": [{"text": {"ru": "Вингардиум Левиоса на дубину", "en": "Wingardium Leviosa on the club"}, "next": "end", "bonus": "xp_140"}, {"text": {"ru": "Позвать профессора", "en": "Call a professor"}, "next": "end", "bonus": "xp_80"}]},
+    ],
+})
+QUESTS["sq_07_patronus"].update({
+    "name": {"ru": "Урок Патронуса", "en": "Patronus Lesson"},
+    "description": {"ru": "Научи воспоминание светиться достаточно ярко, чтобы отогнать дементора.", "en": "Make a memory shine bright enough to repel a Dementor."},
+    "steps": [
+        {"text": {"ru": "Люпин просит выбрать воспоминание для тренировки Патронуса.", "en": "Lupin asks you to choose a memory for Patronus practice."}, "choices": [{"text": {"ru": "Самое счастливое", "en": "The happiest one"}, "next": 1, "bonus": "xp_60"}, {"text": {"ru": "Самое злое", "en": "The angriest one"}, "next": 2, "bonus": None}]},
+        {"text": {"ru": "Свет появляется, но дрожит. Что усилит заклинание?", "en": "The light appears but trembles. What strengthens it?"}, "choices": [{"text": {"ru": "Сосредоточиться и повторить", "en": "Focus and repeat"}, "next": "end", "bonus": "spell_random"}, {"text": {"ru": "Опустить палочку", "en": "Lower the wand"}, "next": "end", "bonus": "xp_40"}]},
+        {"text": {"ru": "Гнев не помогает: дементор давит сильнее.", "en": "Anger does not help; the Dementor presses harder."}, "choices": [{"text": {"ru": "Сменить воспоминание на радостное", "en": "Change to a happy memory"}, "next": "end", "bonus": "xp_100"}, {"text": {"ru": "Отступить", "en": "Retreat"}, "next": "end", "bonus": "gold_50"}]},
+    ],
+})
+QUESTS["sq_08_horcrux"].update({
+    "name": {"ru": "След крестража", "en": "Horcrux Trail"},
+    "description": {"ru": "Найди тёмный артефакт и реши, кому доверить опасную находку.", "en": "Find a dark artefact and decide whom to trust."},
+    "steps": [
+        {"text": {"ru": "Амулет в старой шкатулке шепчет твоё имя.", "en": "An amulet in an old box whispers your name."}, "choices": [{"text": {"ru": "Не трогать руками", "en": "Do not touch it"}, "next": 1, "bonus": "xp_80"}, {"text": {"ru": "Надеть амулет", "en": "Wear it"}, "next": 2, "bonus": None}]},
+        {"text": {"ru": "Защитный круг сдерживает тёмную магию.", "en": "A protective circle contains the dark magic."}, "choices": [{"text": {"ru": "Отнести профессору", "en": "Bring it to a professor"}, "next": "end", "bonus": "xp_160"}, {"text": {"ru": "Спрятать в библиотеке", "en": "Hide it in the library"}, "next": "end", "bonus": "gold_120"}]},
+        {"text": {"ru": "Тьма усиливает урон, но давит на разум.", "en": "Darkness increases power but pressures the mind."}, "choices": [{"text": {"ru": "Снять амулет", "en": "Take it off"}, "next": "end", "bonus": "xp_120"}, {"text": {"ru": "Использовать силу", "en": "Use the power"}, "next": "end", "bonus": "spell_random"}]},
+    ],
+})
+QUESTS["sq_09_deathly"].update({
+    "name": {"ru": "Дары Смерти", "en": "Deathly Hallows"},
+    "description": {"ru": "Собери подсказки о трёх дарах и выбери, что для тебя важнее: сила, защита или память.", "en": "Gather clues about the three Hallows and choose what matters most."},
+    "steps": [
+        {"text": {"ru": "На пергаменте нарисован знак: круг, линия и треугольник.", "en": "A parchment shows a circle, line and triangle."}, "choices": [{"text": {"ru": "Искать Бузинную палочку", "en": "Seek the Elder Wand"}, "next": 1, "bonus": None}, {"text": {"ru": "Изучить легенду полностью", "en": "Study the full legend"}, "next": 2, "bonus": "xp_100"}]},
+        {"text": {"ru": "Сила палочки опасна: за ней охотятся все.", "en": "The wand's power is dangerous: everyone hunts it."}, "choices": [{"text": {"ru": "Отказаться от власти", "en": "Refuse power"}, "next": "end", "bonus": "xp_180"}, {"text": {"ru": "Продолжить поиски", "en": "Continue searching"}, "next": "end", "bonus": "spell_random"}]},
+        {"text": {"ru": "Ты понимаешь: мантия защищает, камень хранит память, палочка даёт силу.", "en": "You understand: cloak protects, stone remembers, wand gives power."}, "choices": [{"text": {"ru": "Выбрать защиту", "en": "Choose protection"}, "next": "end", "bonus": "xp_160"}, {"text": {"ru": "Выбрать мудрость", "en": "Choose wisdom"}, "next": "end", "bonus": "gold_150"}]},
+    ],
+})
+QUESTS["sq_10_final"].update({
+    "name": {"ru": "Финальная битва за Хогвартс", "en": "Final Battle for Hogwarts"},
+    "description": {"ru": "Последний выбор: защитить учеников, встретить врага лицом к лицу или поддержать союзников.", "en": "The final choice: protect students, face the enemy, or support allies."},
+    "steps": [
+        {"text": {"ru": "Замок дрожит от взрывов. Где ты нужен больше всего?", "en": "The castle shakes from explosions. Where are you needed most?"}, "choices": [{"text": {"ru": "В Большом зале", "en": "Great Hall"}, "next": 1, "bonus": "xp_120"}, {"text": {"ru": "У моста", "en": "The bridge"}, "next": 2, "bonus": "gold_120"}]},
+        {"text": {"ru": "Ученики ранены, враг приближается.", "en": "Students are wounded, the enemy approaches."}, "choices": [{"text": {"ru": "Поставить щит", "en": "Raise a shield"}, "next": "end", "bonus": "xp_220"}, {"text": {"ru": "Контратаковать", "en": "Counterattack"}, "next": "end", "bonus": "spell_random"}]},
+        {"text": {"ru": "Мост держится на последней опоре.", "en": "The bridge holds on one last support."}, "choices": [{"text": {"ru": "Укрепить чарами", "en": "Reinforce it with magic"}, "next": "end", "bonus": "xp_200"}, {"text": {"ru": "Эвакуировать всех", "en": "Evacuate everyone"}, "next": "end", "bonus": "gold_180"}]},
+    ],
+})
+
+# Нормальные названия ежедневных квестов вместо «Ежедневное задание 11».
+_DAILY_NAMES = {
+    11: ("Патруль коридоров", "Выиграй стычки с мелкими монстрами и наведи порядок."),
+    12: ("Дежурство в совятне", "Разберись с нарушителями и собери потерянные письма."),
+    13: ("Опасные теплицы", "Победи существ, распугавших учеников у теплиц."),
+    14: ("Следы в снегу", "Найди источник странных следов возле замка."),
+    15: ("Проверка палочки", "Испытай боевые заклинания на тренировочных целях."),
+    16: ("Ночной шум", "Успокой коридоры после отбоя."),
+    17: ("Побег пикси", "Верни пикси в клетку, пока они не устроили хаос."),
+    18: ("Забытый сундук", "Разберись с проклятым сундуком у лестницы."),
+    19: ("Дым из подземелий", "Проверь, что пошло не так на зельеварении."),
+    20: ("Тренировка реакции", "Проведи несколько быстрых боёв."),
+    21: ("Запретный шёпот", "Проверь подозрительные звуки у Запретного леса."),
+    22: ("Помощь первокурсникам", "Очисти путь для младших учеников."),
+    23: ("Пыльные доспехи", "Останови ожившие доспехи в галерее."),
+    24: ("Испытание смелости", "Пройди опасный маршрут и вернись с отчётом."),
+    25: ("Сбор редкостей", "Победи существ и найди полезные материалы."),
+    26: ("Сломанная лестница", "Разберись с магической поломкой лестниц."),
+    27: ("Крик мандрагоры", "Помоги профессорам успокоить теплицу."),
+    28: ("Дуэльный клуб", "Докажи, что готов к настоящей дуэли."),
+    29: ("Тени у озера", "Проверь берег Чёрного озера."),
+    30: ("За честь факультета", "Заработай награды и поддержи свой факультет."),
+}
+for _i, (_name, _desc) in _DAILY_NAMES.items():
+    _qid = f"dq_{_i:02d}"
+    if _qid in QUESTS:
+        QUESTS[_qid]["name"] = {"ru": _name, "en": f"Daily Challenge {_i}"}
+        QUESTS[_qid]["description"] = {"ru": _desc, "en": "Complete the objective and claim the reward."}
+
+QUESTS["wq_01"]["description"] = {"ru": "Большая недельная цель: побеждай в PvP, получай золото, опыт и шанс на редкий предмет.", "en": "Weekly goal: win PvP battles for gold, XP and a rare item chance."}
+
 def get_quest(quest_id: str) -> dict | None:
     return QUESTS.get(quest_id)
 
