@@ -10,8 +10,8 @@ from database import (
     get_conn, fetchval, fetchall, fetchrow, execute,
     get_user, ban_user, unban_user, add_xp, add_gold, log_admin_action, add_item_to_inventory,
 )
-from game.items import ITEMS, item_display_name
-from game.spells import SPELLS, spell_display_name
+from game.items import ITEMS, item_display_name, item_description, item_bonus_text, rarity_label, type_label
+from game.spells import SPELLS, spell_display_name, spell_description, spell_stats_text, spell_rarity_label, spell_type_label
 from game.monsters import MONSTERS
 
 logger = logging.getLogger(__name__)
@@ -447,12 +447,17 @@ async def cmd_list_items(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     rows = sorted(ITEMS.items())
     lines = [f"🎒 Список предметов ({len(rows)}):\n"]
     for iid, item in rows:
-        r = item.get("rarity", "")
-        lines.append(f"• {iid} — {item_display_name(item,'ru')} ({r})")
+        bonus = item_bonus_text(item, "ru")
+        bonus_inline = f" | {bonus.replace(chr(10), '; ')}" if bonus else ""
+        lines.append(
+            f"• `{iid}` — *{item_display_name(item, 'ru')}*\n"
+            f"  ⭐ {rarity_label(item.get('rarity', 'common'), 'ru')} · {type_label(item.get('type', 'item'), 'ru')}{bonus_inline}\n"
+            f"  📜 {item_description(item, 'ru')}"
+        )
 
     text = "\n".join(lines)
     for i in range(0, len(text), 3900):
-        await update.message.reply_text(text[i:i + 3900])
+        await update.message.reply_text(text[i:i + 3900], parse_mode="Markdown")
 
 
 @admin_only
@@ -460,11 +465,18 @@ async def cmd_list_spells(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     rows = sorted(SPELLS.items())
     lines = [f"✨ Список заклинаний ({len(rows)}):\n"]
     for sid, spell in rows:
-        lines.append(f"• {sid} — {spell_display_name(sid,'ru')} ({spell.get('rarity','')})")
+        stats = spell_stats_text(spell, "ru").replace("\n", " | ")
+        lines.append(
+            f"• `{sid}` — *{spell_display_name(sid, 'ru')}*\n"
+            f"  ⭐ {spell_rarity_label(spell.get('rarity', 'common'), 'ru')} · {spell_type_label(spell.get('type', ''), 'ru')}\n"
+            f"  📜 {spell_description(spell, 'ru')}\n"
+            f"  {stats}"
+        )
 
     text = "\n".join(lines)
     for i in range(0, len(text), 3900):
-        await update.message.reply_text(text[i:i + 3900])
+        await update.message.reply_text(text[i:i + 3900], parse_mode="Markdown")
+
 
 
 @admin_only

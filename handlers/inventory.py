@@ -7,12 +7,11 @@ Shows items, allows equipping equipment and using consumables.
   - cb_inv_unequip: читает сохранённый бонус и вычитает его из стата игрока
 """
 import logging
-import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from database import get_user, user_exists, get_conn, execute, fetchrow, fetchall
 from utils.i18n import t
-from game.items import ITEMS, item_display_name, RARITY_NAMES, RARITY_NAMES_RU, EQUIPMENT_SLOTS, SLOT_EMOJI
+from game.items import ITEMS, item_display_name, item_description, item_bonus_text, item_stat_value, stat_label, RARITY_NAMES, RARITY_NAMES_RU, EQUIPMENT_SLOTS, SLOT_EMOJI
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +23,8 @@ def _get_inventory(user_id: int) -> list:
 
 def _get_equipped(user_id: int) -> dict:
     with get_conn() as conn:
-        rows = fetchall(conn, "SELECT slot, item_id FROM equipped_items WHERE user_id = %s", user_id)
-        return {r["slot"]: r["item_id"] for r in rows}
+        rows = fetchall(conn, "SELECT slot, item_id, bonus FROM equipped_items WHERE user_id = %s", user_id)
+        return {r["slot"]: {"item_id": r["item_id"], "bonus": r.get("bonus") or 0} for r in rows}
 
 
 def _inventory_keyboard(inv_rows: list, page: int = 0) -> InlineKeyboardMarkup:
@@ -129,21 +128,17 @@ async def cb_inv_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     equipped = _get_equipped(user_id)
     slot     = item.get("slot")
-    is_equipped = slot and equipped.get(slot) == row["item_id"]
+    eq_data = equipped.get(slot) if slot else None
+    is_equipped = bool(eq_data and (eq_data["item_id"] if isinstance(eq_data, dict) else eq_data) == row["item_id"])
 
     rarity_emoji = RARITY_NAMES.get(item.get("rarity", "common"), "⬜")
     name = item_display_name(item, "ru")
-    bonus_text = ""
-    if item.get("type") == "equipment":
-        stat  = item.get("stat", "")
-        b_min = item.get("stat_min", 0)
-        b_max = item.get("stat_max", 0)
-        bonus_text = f"\n+{b_min}–{b_max} к `{stat}`"
-
-    desc = item.get("desc_ru") or "Описание пока не добавлено."
+    bonus_text = item_bonus_text(item, "ru")
+    desc = item_description(item, "ru")
     rarity_text = RARITY_NAMES_RU.get(item.get("rarity", "common"), item.get("rarity", "?"))
     qty_text = f"\nКоличество: {row.get('quantity', 1)}" if row.get("quantity", 1) > 1 else ""
-    text = f"{rarity_emoji} *{name}*\nРедкость: {rarity_text}{qty_text}\n\n📜 {desc}{bonus_text}"
+    bonus_block = f"\n\n{bonus_text}" if bonus_text else ""
+    text = f"{rarity_emoji} *{name}*\nРедкость: {rarity_text}{qty_text}\n\n📜 {desc}{bonus_block}"
     markup = _item_action_keyboard(inv_id, item, is_equipped)
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
 
@@ -167,7 +162,7 @@ async def cb_inv_equip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     slot  = item["slot"]
     stat  = item.get("stat", "")
-    bonus = random.randint(item.get("stat_min", 1), item.get("stat_max", 3))
+    bonus = item_stat_value(item)
 
     with get_conn() as conn:
         # Снять предыдущий предмет в этом слоте и ВОССТАНОВИТЬ его бонус
@@ -193,7 +188,7 @@ async def cb_inv_equip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             execute(conn, f"UPDATE users SET {stat} = {stat} + %s WHERE user_id=%s", bonus, user_id)
 
     name = item_display_name(item, "ru")
-    await query.edit_message_text(f"✅ Надето: *{name}* (+{bonus} к {stat})", parse_mode="Markdown")
+    await query.edit_message_text(f"✅ Надето: *{name}*\n📈 +{bonus} к {stat_label(stat, 'ru')}", parse_mode="Markdown")
 
 
 async def cb_inv_unequip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

@@ -48,6 +48,47 @@ def _quest_display_name(quest: dict, lang: str = "ru") -> str:
     return name.get(lang, name.get("en", quest["id"]))
 
 
+def _quest_description(quest: dict, lang: str = "ru") -> str:
+    desc = quest.get("description", {})
+    if isinstance(desc, dict):
+        return desc.get(lang) or desc.get("ru") or desc.get("en") or "Выполни цель и получи награду."
+    return str(desc) if desc else "Выполни цель и получи награду."
+
+
+def _objective_text(quest: dict) -> str:
+    obj = quest.get("objective")
+    if not obj:
+        steps = len(quest.get("steps", []))
+        return f"Сюжетный выбор: {steps} этап(а)." if steps else "Квест завершается сразу."
+    count = obj.get("count", 1)
+    typ = obj.get("type")
+    if typ == "kill_monster":
+        monster = obj.get("monster", "any")
+        target = "любых монстров" if monster == "any" else f"монстров: {monster}"
+        return f"Победить {count} {target}."
+    if typ == "attend_lesson":
+        return f"Посетить урок: {obj.get('subject', 'любой')} ×{count}."
+    if typ == "pvp_win":
+        return f"Победить в PvP-дуэлях: {count}."
+    if typ == "pve_dungeon":
+        zone = obj.get("zone", "any")
+        target = "любых подземельях" if zone == "any" else f"зоне {zone}"
+        return f"Пройти PvE в {target}: {count}."
+    return f"Выполнить цель: {typ} ×{count}."
+
+
+def _reward_text(quest: dict) -> str:
+    reward = quest.get("final_reward") or quest.get("reward") or {}
+    parts = []
+    if reward.get("xp"):
+        parts.append(f"+{reward['xp']} XP")
+    if reward.get("gold"):
+        parts.append(f"+{reward['gold']} золота")
+    if reward.get("item"):
+        parts.append(f"предмет: {reward['item']}")
+    return ", ".join(parts) if parts else "награда по завершении"
+
+
 def _quests_keyboard(quests: list[dict], user_id: int, completed: set) -> InlineKeyboardMarkup:
     buttons = []
     for quest in quests:

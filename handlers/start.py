@@ -52,7 +52,7 @@ def main_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
         [KeyboardButton(t(user_id, "btn_lessons")), KeyboardButton(t(user_id, "btn_inventory"))],
         [KeyboardButton(t(user_id, "btn_quests")), KeyboardButton(t(user_id, "btn_auction"))],
         [KeyboardButton(t(user_id, "btn_events")), KeyboardButton(t(user_id, "btn_rating"))],
-        [KeyboardButton(t(user_id, "btn_settings"))],
+        [KeyboardButton(t(user_id, "btn_other_commands")), KeyboardButton(t(user_id, "btn_settings"))],
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
@@ -197,6 +197,12 @@ async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(messages.get(lang, messages["en"]))
 
 
+
+async def handle_other_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if update.message and update.message.text == t(user_id, "btn_other_commands"):
+        await update.message.reply_text(t(user_id, "other_commands_text"), parse_mode="Markdown")
+
 def get_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
@@ -213,5 +219,6 @@ def get_conversation_handler() -> ConversationHandler:
 def register_start_handlers(app):
     app.add_handler(get_conversation_handler())
     app.add_handler(CommandHandler("menu", cmd_menu))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_other_commands), group=0)
     app.add_handler(CallbackQueryHandler(cb_settings, pattern=r"^settings:"))
     app.add_handler(CallbackQueryHandler(cb_set_lang, pattern=r"^setlang:"))
