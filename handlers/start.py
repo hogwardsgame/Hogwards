@@ -28,7 +28,7 @@ LANG_OPTIONS = [
     ("🇧🇷 Português", "pt"),
 ]
 
-# ─── ЯЗЫКОВЫЕ КЛАВИАТУРЫ ──────────────────────────────
+# ─── Языковые клавиатуры ──────────────────────────────
 def lang_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(label, callback_data=f"lang:{code}")]
@@ -92,11 +92,15 @@ def other_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
         KeyboardButton(t(user_id, "btn_explore")),
         KeyboardButton(t(user_id, "btn_back_main_menu"))
     )
-    # Админские кнопки
     if user_id in ADMIN_USER_IDS:
         kb.add(
             KeyboardButton(t(user_id, "btn_admin_stats")),
-            KeyboardButton(t(user_id, "btn_admin_items"))
+            KeyboardButton(t(user_id, "btn_admin_items")),
+            KeyboardButton(t(user_id, "btn_admin_economy")),
+            KeyboardButton(t(user_id, "btn_admin_log")),
+            KeyboardButton(t(user_id, "btn_admin_bosses")),
+            KeyboardButton(t(user_id, "btn_admin_spells")),
+            KeyboardButton(t(user_id, "btn_admin_maintenance"))
         )
     return kb
 
@@ -189,47 +193,63 @@ async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
 
-# ─── Настройки ───────────────────────────────────────────────
-async def handle_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    await update.message.reply_text(
-        t(user_id, "settings_menu"),
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(t(user_id, "btn_change_lang"), callback_data="settings:lang")]
-        ])
-    )
-
-async def cb_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        t_lang("ru", "choose_lang"),
-        reply_markup=settings_lang_keyboard(),
-    )
-
-async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    lang = query.data.split(":")[1]
-    set_cached_lang(user_id, lang)
-    await _db(set_user_lang, user_id, lang)
-    await query.edit_message_text(f"✅ {t(user_id, 'language_changed')}")
-
-# ─── Вторая страница меню (доп. команды) ─────────────────────────
+# ─── Обработка всех кнопок ─────────────────────────────────────
 async def handle_other_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     user_id = update.effective_user.id
     text = update.message.text
 
-    if text == t(user_id, "btn_other_commands"):
-        await update.message.reply_text(t(user_id, "other_buttons_menu"), reply_markup=other_menu_keyboard(user_id))
+    # словарь действий для игроков
+    player_actions = {
+        t(user_id, "btn_profile"): "handlers.profile.cmd_profile",
+        t(user_id, "btn_inventory"): "handlers.inventory.cmd_inventory",
+        t(user_id, "btn_shop"): "handlers.shop.cmd_shop",
+        t(user_id, "btn_lessons"): "handlers.lessons.cmd_lessons",
+        t(user_id, "btn_quests"): "handlers.quests.cmd_quests",
+        t(user_id, "btn_house"): "handlers.house_points.cmd_house",
+        t(user_id, "btn_worldboss"): "handlers.world_bosses.cmd_worldboss",
+        t(user_id, "btn_tournament"): "handlers.tournament.cmd_tournament",
+        t(user_id, "btn_hogsmeade"): "handlers.hogsmeade.cmd_hogsmeade",
+        t(user_id, "btn_room"): "handlers.room_of_requirement.cmd_room",
+        t(user_id, "btn_potions"): "handlers.potion_system.cmd_potions",
+        t(user_id, "btn_squad"): "handlers.squads.cmd_squad",
+        t(user_id, "btn_trade"): "handlers.trade.cmd_trade",
+        t(user_id, "btn_achievements"): "handlers.achievements.cmd_achievements",
+        t(user_id, "btn_titles"): "handlers.titles.cmd_titles",
+        t(user_id, "btn_explore"): "handlers.locations.cmd_explore",
+        t(user_id, "btn_back_main_menu"): None,
+    }
+
+    admin_actions = {
+        t(user_id, "btn_admin_panel"): "handlers.admin.cmd_admin",
+        t(user_id, "btn_admin_stats"): "handlers.admin.cmd_stats",
+        t(user_id, "btn_admin_items"): "handlers.admin.cmd_list_items",
+        t(user_id, "btn_admin_spells"): "handlers.admin.cmd_list_spells",
+        t(user_id, "btn_admin_economy"): "handlers.admin.cmd_economy_info",
+        t(user_id, "btn_admin_log"): "handlers.admin.cmd_admin_log",
+        t(user_id, "btn_admin_bosses"): "handlers.admin.cmd_list_bosses",
+        t(user_id, "btn_admin_maintenance"): "handlers.admin.cmd_maintenance",
+    }
+
+    action = player_actions.get(text)
+    if action is None and user_id in ADMIN_USER_IDS:
+        action = admin_actions.get(text)
+
+    if action is None:
+        if text == t(user_id, "btn_back_main_menu"):
+            await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
         return
-    if text == t(user_id, "btn_back_main_menu"):
-        await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
-        return
-    # Здесь можно добавить обработку всех кнопок игрока и админа
+
+    # динамический импорт и вызов функции
+    try:
+        module_name, func_name = action.rsplit(".", 1)
+        import importlib
+        func = getattr(importlib.import_module(module_name), func_name)
+        await func(update, ctx)
+    except Exception:
+        logger.exception("Failed to handle menu button %s for user %s", text, user_id)
+        await update.message.reply_text(t(user_id, "menu_action_error"))
 
 # ─── Регистрация хендлеров ─────────────────────────────────────
 def get_conversation_handler() -> ConversationHandler:
@@ -250,4 +270,3 @@ def register_start_handlers(app):
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_other_commands), group=0)
     app.add_handler(CallbackQueryHandler(cb_settings, pattern=r"^settings:"))
     app.add_handler(CallbackQueryHandler(cb_set_lang, pattern=r"^setlang:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_settings), group=0)
