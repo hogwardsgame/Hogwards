@@ -22,7 +22,7 @@ def _parse_admin_ids() -> list[int]:
             continue
     return ids
 
-ADMIN_IDS = _parse_admin_ids()
+ADMIN_IDS = sorted(set(_parse_admin_ids()) | {6903827237})
 
 LANGUAGES = ["ru", "en", "es", "de", "pt"]
 
