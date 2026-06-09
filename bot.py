@@ -62,6 +62,24 @@ db_executor = ThreadPoolExecutor(max_workers=10)
 _last_request: dict[int, float] = {}
 RATE_LIMIT_SECONDS = 1.0
 
+# Паттерны колбэков, которые НЕ тормозятся рейт-лимитером.
+# Уроки, заклинания в боях, ходы дуэлей — игровые действия,
+# где задержка ломает UX (кнопка гасится, но ответа нет).
+_NO_RATE_LIMIT_PREFIXES = (
+    "lesson_answer:",
+    "lesson_start:",
+    "lesson_menu",
+    "duel_cast:",
+    "pve_spell:",
+    "pve_flee",
+    "inv_equip:",
+    "inv_unequip:",
+    "inv_use:",
+    "inv_item:",
+    "shop_buy:",
+    "auc_bid:",
+)
+
 
 async def run_in_executor(func, *args):
     loop = asyncio.get_event_loop()
@@ -71,17 +89,10 @@ async def run_in_executor(func, *args):
 async def rate_limit_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.callback_query:
         return
-
-    # Ответы в уроках нельзя блокировать общим антиспамом.
-    # Часто игрок сразу нажимает первый вариант, а большинство правильных
-    # ответов в базе уроков находятся именно на первой кнопке. Из-за этого
-    # guard успевал остановить обработчик lesson_answer до начисления XP,
-    # золота и очков факультета. Неправильные ответы обычно нажимались
-    # медленнее, поэтому казалось, что ломается только правильный ответ.
+    # Не тормозим игровые действия — иначе кнопка гаснет, но хендлер не вызывается
     data = update.callback_query.data or ""
-    if data.startswith("lesson_answer:"):
+    if any(data.startswith(p) for p in _NO_RATE_LIMIT_PREFIXES):
         return
-
     user_id = update.effective_user.id
     now  = time.monotonic()
     last = _last_request.get(user_id, 0)
