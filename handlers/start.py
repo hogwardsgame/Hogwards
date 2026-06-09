@@ -28,6 +28,7 @@ LANG_OPTIONS = [
     ("🇧🇷 Português", "pt"),
 ]
 
+# ─── ЯЗЫКОВЫЕ КЛАВИАТУРЫ ──────────────────────────────
 def lang_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(label, callback_data=f"lang:{code}")]
@@ -188,18 +189,47 @@ async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
 
+# ─── Настройки ───────────────────────────────────────────────
+async def handle_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await update.message.reply_text(
+        t(user_id, "settings_menu"),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(t(user_id, "btn_change_lang"), callback_data="settings:lang")]
+        ])
+    )
+
+async def cb_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        t_lang("ru", "choose_lang"),
+        reply_markup=settings_lang_keyboard(),
+    )
+
+async def cb_set_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    lang = query.data.split(":")[1]
+    set_cached_lang(user_id, lang)
+    await _db(set_user_lang, user_id, lang)
+    await query.edit_message_text(f"✅ {t(user_id, 'language_changed')}")
+
+# ─── Вторая страница меню (доп. команды) ─────────────────────────
 async def handle_other_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
     user_id = update.effective_user.id
     text = update.message.text
+
     if text == t(user_id, "btn_other_commands"):
         await update.message.reply_text(t(user_id, "other_buttons_menu"), reply_markup=other_menu_keyboard(user_id))
         return
     if text == t(user_id, "btn_back_main_menu"):
         await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
         return
-    # Здесь остальной обработчик кнопок (игроки и админ) оставляем как было
+    # Здесь можно добавить обработку всех кнопок игрока и админа
 
 # ─── Регистрация хендлеров ─────────────────────────────────────
 def get_conversation_handler() -> ConversationHandler:
@@ -218,6 +248,6 @@ def register_start_handlers(app):
     app.add_handler(get_conversation_handler())
     app.add_handler(CommandHandler("menu", cmd_menu))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_other_commands), group=0)
-    # Подключение callback для настроек
-    app.add_handler(CallbackQueryHandler(lambda u,c: None, pattern=r"^settings:"))
-    app.add_handler(CallbackQueryHandler(lambda u,c: None, pattern=r"^setlang:"))
+    app.add_handler(CallbackQueryHandler(cb_settings, pattern=r"^settings:"))
+    app.add_handler(CallbackQueryHandler(cb_set_lang, pattern=r"^setlang:"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_settings), group=0)
