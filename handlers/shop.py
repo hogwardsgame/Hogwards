@@ -1,6 +1,9 @@
 """
 Shop handler (Diagon Alley) — магазин.
-Теперь предмет сначала открывается с описанием, а покупка делается отдельной кнопкой.
+Предмет сначала открывается с описанием, покупка делается отдельной кнопкой.
+
+Исправление: убран первый query.answer() в cb_shop_buy — Telegram разрешает
+только один answer() на колбэк, двойной вызов роняет хендлер.
 """
 import logging
 from datetime import date
@@ -149,7 +152,7 @@ async def cb_shop_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_shop_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    # НЕ вызываем query.answer() здесь — он будет вызван ровно один раз ниже
     user_id = query.from_user.id
     shop_row_id = int(query.data.split(":")[1])
 
@@ -204,6 +207,8 @@ async def cb_shop_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_shop_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
     user_id = update.effective_user.id
     if update.message.text == t(user_id, "btn_shop"):
         await cmd_shop(update, ctx)
@@ -212,6 +217,6 @@ async def handle_shop_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def register_shop_handlers(app):
     app.add_handler(CommandHandler("shop", cmd_shop))
     app.add_handler(CallbackQueryHandler(cb_shop_view, pattern=r"^shop_view:"))
-    app.add_handler(CallbackQueryHandler(cb_shop_buy, pattern=r"^shop_buy:"))
+    app.add_handler(CallbackQueryHandler(cb_shop_buy,  pattern=r"^shop_buy:"))
     app.add_handler(CallbackQueryHandler(cb_shop_back, pattern=r"^shop_back$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_shop_button), group=7)

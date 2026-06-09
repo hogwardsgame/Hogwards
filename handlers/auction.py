@@ -2,6 +2,8 @@
 Auction handler — TZ section 11.2.
 Players list items, others bid; 5% commission on final price.
 Max 3 active lots per player. No consumables or quest items.
+
+Исправление: убран первый query.answer() в cb_auc_bid — двойной вызов роняет хендлер.
 """
 import logging
 from datetime import datetime, timedelta, timezone
@@ -136,7 +138,7 @@ async def cb_auc_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_auc_bid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
+    # НЕ вызываем query.answer() здесь — он будет вызван ровно один раз ниже
     user_id = query.from_user.id
     _, lot_id_s, amount_s = query.data.split(":")
     lot_id = int(lot_id_s)
@@ -351,6 +353,8 @@ async def finalize_expired_lots(bot):
 
 
 async def handle_auction_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
     user_id = update.effective_user.id
     if update.message.text == t(user_id, "btn_auction"):
         await cmd_auction(update, ctx)

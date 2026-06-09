@@ -1,8 +1,13 @@
 """
 Inventory handler — TZ section 10.
 Shows items, allows equipping equipment and using consumables.
+
+Исправления:
+  - cb_inv_equip: бонус сохраняется в equipped_items.bonus, а не генерируется заново
+  - cb_inv_unequip: читает сохранённый бонус и вычитает его из стата игрока
 """
 import logging
+import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from database import get_user, user_exists, get_conn, execute, fetchrow, fetchall
@@ -131,8 +136,6 @@ async def cb_inv_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     bonus_text = ""
     if item.get("type") == "equipment":
         stat  = item.get("stat", "")
-        bonus = row.get("quantity", 1)  # reuse quantity field for bonus? stored separately
-        # Try reading bonus from item definition
         b_min = item.get("stat_min", 0)
         b_max = item.get("stat_max", 0)
         bonus_text = f"\n+{b_min}–{b_max} к `{stat}`"
@@ -162,25 +165,30 @@ async def cb_inv_equip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ Нельзя надеть.", show_alert=True)
         return
 
-    slot = item["slot"]
-    stat = item.get("stat", "")
-    import random
+    slot  = item["slot"]
+    stat  = item.get("stat", "")
     bonus = random.randint(item.get("stat_min", 1), item.get("stat_max", 3))
 
     with get_conn() as conn:
-        # Unequip previous in slot
-        old = fetchrow(conn, "SELECT item_id FROM equipped_items WHERE user_id=%s AND slot=%s", user_id, slot)
+        # Снять предыдущий предмет в этом слоте и ВОССТАНОВИТЬ его бонус
+        old = fetchrow(conn, "SELECT item_id, bonus FROM equipped_items WHERE user_id=%s AND slot=%s", user_id, slot)
         if old:
-            old_item = ITEMS.get(old["item_id"], {})
-            old_stat = old_item.get("stat", "")
-            old_bonus = random.randint(old_item.get("stat_min",0), old_item.get("stat_max",0))
-            if old_stat:
+            old_item  = ITEMS.get(old["item_id"], {})
+            old_stat  = old_item.get("stat", "")
+            # Читаем сохранённый бонус — не генерируем заново!
+            old_bonus = old.get("bonus") or 0
+            if old_stat and old_bonus:
                 execute(conn, f"UPDATE users SET {old_stat} = {old_stat} - %s WHERE user_id=%s", old_bonus, user_id)
+
+        # Сохраняем новый предмет с его бонусом
         execute(conn, """
-            INSERT INTO equipped_items (user_id, slot, item_id)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (user_id, slot) DO UPDATE SET item_id = EXCLUDED.item_id
-        """, user_id, slot, row["item_id"])
+            INSERT INTO equipped_items (user_id, slot, item_id, bonus)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id, slot) DO UPDATE
+                SET item_id = EXCLUDED.item_id,
+                    bonus   = EXCLUDED.bonus
+        """, user_id, slot, row["item_id"], bonus)
+
         if stat:
             execute(conn, f"UPDATE users SET {stat} = {stat} + %s WHERE user_id=%s", bonus, user_id)
 
@@ -199,12 +207,24 @@ async def cb_inv_unequip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not row:
         await query.answer("❌", show_alert=True)
         return
+
     item = ITEMS.get(row["item_id"])
     if not item:
         await query.answer("❌", show_alert=True)
         return
+
     slot = item.get("slot")
+
     with get_conn() as conn:
+        # Читаем сохранённый бонус и вычитаем его из стата игрока
+        equipped_row = fetchrow(conn, "SELECT item_id, bonus FROM equipped_items WHERE user_id=%s AND slot=%s", user_id, slot)
+        if equipped_row:
+            eq_item  = ITEMS.get(equipped_row["item_id"], {})
+            eq_stat  = eq_item.get("stat", "")
+            eq_bonus = equipped_row.get("bonus") or 0
+            if eq_stat and eq_bonus:
+                execute(conn, f"UPDATE users SET {eq_stat} = {eq_stat} - %s WHERE user_id=%s", eq_bonus, user_id)
+
         execute(conn, "DELETE FROM equipped_items WHERE user_id=%s AND slot=%s", user_id, slot)
 
     await query.edit_message_text(f"🔓 Снято: *{item_display_name(item,'ru')}*", parse_mode="Markdown")
@@ -270,6 +290,8 @@ async def cb_inv_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_inventory_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
     user_id = update.effective_user.id
     if update.message.text == t(user_id, "btn_inventory"):
         await cmd_inventory(update, ctx)
