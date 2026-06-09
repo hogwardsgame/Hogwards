@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS equipped_items (
     user_id BIGINT REFERENCES users(user_id),
     slot    TEXT NOT NULL,
     item_id TEXT NOT NULL,
+    bonus   INT DEFAULT 0,
     PRIMARY KEY (user_id, slot)
 );
 
@@ -440,6 +441,10 @@ MIGRATION_SQL = """
 -- ── Миграции (добавляем недостающие колонки если таблица уже существует) ───
 ALTER TABLE house_points ADD COLUMN IF NOT EXISTS season INT DEFAULT 1;
 ALTER TABLE house_points ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Для экипировки: handlers/inventory.py сохраняет бонус надетого предмета,
+-- чтобы при снятии/замене вычесть ровно тот же бонус.
+ALTER TABLE equipped_items ADD COLUMN IF NOT EXISTS bonus INT DEFAULT 0;
 
 -- В старых базах у одного игрока могло быть несколько строк одного предмета.
 -- Перед уникальным индексом складываем количество в одну строку.
