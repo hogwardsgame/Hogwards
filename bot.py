@@ -71,6 +71,17 @@ async def run_in_executor(func, *args):
 async def rate_limit_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.callback_query:
         return
+
+    # Ответы в уроках нельзя блокировать общим антиспамом.
+    # Часто игрок сразу нажимает первый вариант, а большинство правильных
+    # ответов в базе уроков находятся именно на первой кнопке. Из-за этого
+    # guard успевал остановить обработчик lesson_answer до начисления XP,
+    # золота и очков факультета. Неправильные ответы обычно нажимались
+    # медленнее, поэтому казалось, что ломается только правильный ответ.
+    data = update.callback_query.data or ""
+    if data.startswith("lesson_answer:"):
+        return
+
     user_id = update.effective_user.id
     now  = time.monotonic()
     last = _last_request.get(user_id, 0)
