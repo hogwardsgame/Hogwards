@@ -443,79 +443,106 @@ async def cb_lesson_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     qidx       = int(parts[2])   # номер вопроса, который был показан игроку
     chosen_idx = int(parts[3])   # что выбрал игрок
 
-    # Сессия нужна для серии правильных ответов.
+    # Берём вопрос по номеру из кнопки. Так правильный ответ не ломается,
+    # даже если бот перезапустился или потерял временную память.
     session = _lesson_sessions.get(user_id) or {"subject": subject, "score": 0, "total": 0, "streak": 0}
-    question = session.get("question") or _get_question_by_index(subject, qidx)
+    question = _get_question_by_index(subject, qidx)
 
     correct = (chosen_idx == int(question.get("answer", -1)))
 
     if correct:
-        session["score"]  += 1
-        session["streak"] += 1
-        xp_gain   = XP_REWARDS["lesson_correct"]
-        gold_gain = GOLD_REWARDS["lesson_correct"]
-        hp_pts    = HOUSE_POINTS_REWARDS["lesson_correct"]
+        session["score"] = session.get("score", 0) + 1
+        session["streak"] = session.get("streak", 0) + 1
+        xp_gain = XP_REWARDS.get("lesson_correct", 30)
+        gold_gain = GOLD_REWARDS.get("lesson_correct", 8)
+        hp_pts = HOUSE_POINTS_REWARDS.get("lesson_correct", 3)
 
         # Бонус за серию правильных ответов
         streak = session["streak"]
-        streak_bonus_xp   = 0
+        streak_bonus_xp = 0
         streak_bonus_gold = 0
-        streak_msg        = ""
+        streak_msg = ""
         if streak == 3:
-            streak_bonus_xp   = 20
+            streak_bonus_xp = 20
             streak_bonus_gold = 10
-            streak_msg        = "\n🔥 *Серия 3 подряд!* Бонус +20 XP, +10 💰"
+            streak_msg = "\n🔥 Серия 3 подряд! Бонус +20 XP, +10 💰"
         elif streak == 5:
-            streak_bonus_xp   = 50
+            streak_bonus_xp = 50
             streak_bonus_gold = 25
-            streak_msg        = "\n⚡ *Серия 5 подряд!* Бонус +50 XP, +25 💰"
+            streak_msg = "\n⚡ Серия 5 подряд! Бонус +50 XP, +25 💰"
         elif streak >= 10:
-            streak_bonus_xp   = 100
+            streak_bonus_xp = 100
             streak_bonus_gold = 50
-            streak_msg        = "\n🌟 *Серия 10+!* Бонус +100 XP, +50 💰"
+            streak_msg = "\n🌟 Серия 10+! Бонус +100 XP, +50 💰"
 
-        xp_gain   += streak_bonus_xp
+        xp_gain += streak_bonus_xp
         gold_gain += streak_bonus_gold
 
-        user = get_user(user_id)
+        # ВАЖНО: раньше правильный ответ мог падать на очках факультета
+        # или статистике. Игрок нажимал правильный ответ, а бот молчал.
+        # Теперь основная награда выдаётся обязательно, а второстепенные
+        # действия не ломают ответ бота.
         add_xp(user_id, xp_gain)
         add_gold(user_id, gold_gain)
-        add_house_points(user_id, user["house"], hp_pts, "lesson_correct")
-        increment_daily(user_id, "lessons")
 
-        with get_conn() as conn:
-            execute(conn, "UPDATE user_stats SET lessons_done = lessons_done + 1 WHERE user_id = %s", user_id)
+        user = get_user(user_id)
+        if user and user.get("house"):
+            try:
+                add_house_points(user_id, user["house"], hp_pts, "lesson_correct")
+            except Exception:
+                logger.exception("Не удалось начислить очки факультета за урок")
+
+        try:
+            increment_daily(user_id, "lessons")
+        except Exception:
+            logger.exception("Не удалось обновить дневной лимит уроков")
+
+        try:
+            with get_conn() as conn:
+                execute(conn, "UPDATE user_stats SET lessons_done = COALESCE(lessons_done, 0) + 1 WHERE user_id = %s", user_id)
+        except Exception:
+            logger.exception("Не удалось обновить статистику уроков")
 
         # Редкая награда: заклинание (1% шанс)
         rare_reward = ""
-        if random.random() < 0.01:
-            from game.spells import spells_by_rarity
-            rare_spells = spells_by_rarity("rare")
-            if rare_spells:
-                spell = random.choice(rare_spells)
-                with get_conn() as conn:
-                    execute(conn, "INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", user_id, spell["id"])
-                rare_reward = f"\n\n🌟 *Редкая награда:* заклинание `{spell['id']}`!"
+        try:
+            if random.random() < 0.01:
+                from game.spells import spells_by_rarity
+                rare_spells = spells_by_rarity("rare")
+                if rare_spells:
+                    spell = random.choice(rare_spells)
+                    with get_conn() as conn:
+                        execute(conn, "INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", user_id, spell["id"])
+                    rare_reward = f"\n\n🌟 Редкая награда: заклинание {spell['id']}!"
+        except Exception:
+            logger.exception("Не удалось выдать редкую награду за урок")
 
         result_text = (
-            f"✅ *Правильно!*\n\n"
-            f"_{question.get('hint','Отличная работа!')}_\n\n"
+            f"✅ Правильно!\n\n"
+            f"{question.get('hint','Отличная работа!')}\n\n"
             f"+{xp_gain} XP | +{gold_gain} 💰 | +{hp_pts} очков факультету"
             f"{streak_msg}"
             f"{rare_reward}"
         )
     else:
         session["streak"] = 0
-        xp_gain   = XP_REWARDS["lesson_wrong"]
-        gold_gain = GOLD_REWARDS["lesson_wrong"]
-        add_xp(user_id, xp_gain)
-        increment_daily(user_id, "lessons")
+        xp_gain = XP_REWARDS.get("lesson_wrong", 5)
+        gold_gain = GOLD_REWARDS.get("lesson_wrong", 0)
 
-        correct_text = question["options"][question["answer"]]
+        add_xp(user_id, xp_gain)
+        if gold_gain:
+            add_gold(user_id, gold_gain)
+
+        try:
+            increment_daily(user_id, "lessons")
+        except Exception:
+            logger.exception("Не удалось обновить дневной лимит уроков")
+
+        correct_text = question["options"][int(question.get("answer", 0))]
         result_text = (
-            f"❌ *Неверно!*\n\n"
-            f"Правильный ответ: *{correct_text}*\n"
-            f"_{question.get('hint','Продолжай учиться!')}_\n\n"
+            f"❌ Неверно!\n\n"
+            f"Правильный ответ: {correct_text}\n"
+            f"{question.get('hint','Продолжай учиться!')}\n\n"
             f"+{xp_gain} XP за участие"
         )
 
@@ -534,7 +561,7 @@ async def cb_lesson_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         markup = None
         result_text += "\n\n📚 На сегодня всё! Возвращайся завтра."
 
-    await query.edit_message_text(result_text, parse_mode="Markdown", reply_markup=markup)
+    await query.edit_message_text(result_text, reply_markup=markup)
 
 
 async def cb_lesson_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
