@@ -10,7 +10,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from database import (
     get_user, user_exists, get_user_spells, get_daily_limit, increment_daily,
-    add_xp, add_gold, add_house_points, get_conn, execute, fetchval,
+    add_xp, add_gold, add_house_points, get_conn, execute, fetchval, add_item_to_inventory,
 )
 from utils.i18n import t
 from utils.helpers import house_emoji
@@ -298,11 +298,12 @@ async def cb_pve_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # Ограничиваем лог 6 строками
     session["log"] = session["log"][-6:]
 
-    if session["player_hp"] <= 0:
-        await _pve_lose(query, user_id, session)
-        return
+    # Если оба умерли от эффектов, победу отдаём игроку: монстр тоже повержен.
     if session["monster_hp"] <= 0:
         await _pve_win(query, user_id, session, ctx)
+        return
+    if session["player_hp"] <= 0:
+        await _pve_lose(query, user_id, session)
         return
 
     spells = [row["spell_id"] for row in get_user_spells(user_id)]
@@ -388,13 +389,17 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
 
     drop_text = ""
     if drop.get("spell"):
+        with get_conn() as conn:
+            execute(conn, "INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", user_id, drop["spell"])
         drop_text += f"\n✨ *Новое заклинание:* `{drop['spell']}`!"
     if drop.get("item"):
+        add_item_to_inventory(user_id, drop["item"]["id"], 1)
         drop_text += f"\n🎁 *Найден предмет:* `{drop['item']['id']}`!"
     # Уникальный дроп босса
     if monster.get("is_boss") and monster.get("unique_drop"):
         if random.random() < 0.05:  # 5% шанс уникального дропа
-            drop_text += f"\n🌟 *РЕДКИЙ ДРО П:* `{monster['unique_drop']}`!"
+            add_item_to_inventory(user_id, monster["unique_drop"], 1)
+            drop_text += f"\n🌟 *РЕДКИЙ ДРОП:* `{monster['unique_drop']}`!"
 
     level_text = f"\n\n🎉 *Уровень повышен до {new_level}!*" if leveled_up else ""
 

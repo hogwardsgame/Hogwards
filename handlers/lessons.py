@@ -334,8 +334,21 @@ _lesson_sessions: dict[int, dict] = {}
 def _pick_question(subject: str) -> dict:
     pool = QUESTIONS.get(subject, [])
     if not pool:
-        pool = random.choice(list(QUESTIONS.values()))
-    return random.choice(pool)
+        subject = random.choice(list(QUESTIONS.keys()))
+        pool = QUESTIONS[subject]
+    idx = random.randrange(len(pool))
+    question = pool[idx].copy()
+    question["__idx"] = idx
+    return question
+
+
+def _get_question_by_index(subject: str, qidx: int) -> dict:
+    pool = QUESTIONS.get(subject, [])
+    if not pool or qidx < 0 or qidx >= len(pool):
+        return _pick_question(subject)
+    question = pool[qidx].copy()
+    question["__idx"] = qidx
+    return question
 
 
 def _lesson_subject_keyboard() -> InlineKeyboardMarkup:
@@ -348,14 +361,17 @@ def _lesson_subject_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-def _question_keyboard(options: list[str], subject: str, correct_idx: int) -> InlineKeyboardMarkup:
-    """correct_idx зашит в callback_data — не зависим от in-memory сессии."""
+def _question_keyboard(question: dict, subject: str) -> InlineKeyboardMarkup:
+    """В callback кладём номер вопроса и номер выбранного ответа.
+    Так бот всегда проверяет именно тот вопрос, который был показан игроку.
+    """
     letters = ["А", "Б", "В", "Г"]
     buttons = []
-    for i, opt in enumerate(options):
+    qidx = int(question.get("__idx", 0))
+    for i, opt in enumerate(question["options"]):
         buttons.append([InlineKeyboardButton(
             f"{letters[i]}) {opt}",
-            callback_data=f"lesson_answer:{subject}:{correct_idx}:{i}"
+            callback_data=f"lesson_answer:{subject}:{qidx}:{i}"
         )])
     return InlineKeyboardMarkup(buttons)
 
@@ -406,7 +422,7 @@ async def cb_lesson_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     }
     _lesson_sessions[user_id] = session
 
-    markup = _question_keyboard(question["options"], subject, question["answer"])
+    markup = _question_keyboard(question, subject)
     await query.edit_message_text(
         f"{info.get('emoji','📚')} *{info.get('name','Урок')}*\n"
         f"👩‍🏫 {info.get('teacher','Преподаватель')}\n"
@@ -422,17 +438,16 @@ async def cb_lesson_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
 
-    parts       = query.data.split(":")
-    subject     = parts[1]
-    correct_idx = int(parts[2])   # правильный ответ зашит в callback_data
-    chosen_idx  = int(parts[3])   # что выбрал игрок
+    parts      = query.data.split(":")
+    subject    = parts[1]
+    qidx       = int(parts[2])   # номер вопроса, который был показан игроку
+    chosen_idx = int(parts[3])   # что выбрал игрок
 
-    # Сессия нужна только для streak — если нет, создаём пустую
+    # Сессия нужна для серии правильных ответов.
     session = _lesson_sessions.get(user_id) or {"subject": subject, "score": 0, "total": 0, "streak": 0}
-    # Берём вопрос из сессии если есть, иначе восстанавливаем hint из банка
-    question = session.get("question") or _pick_question(subject)
+    question = session.get("question") or _get_question_by_index(subject, qidx)
 
-    correct = (chosen_idx == correct_idx)
+    correct = (chosen_idx == int(question.get("answer", -1)))
 
     if correct:
         session["score"]  += 1

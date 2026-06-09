@@ -278,17 +278,28 @@ async def cb_duel_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if action == "random":
         user = get_user(user_id)
+        if not user:
+            await query.edit_message_text("❌ Сначала зарегистрируйся через /start.")
+            return
+
         with get_conn() as conn:
             candidates = fetchall(conn, """
-                SELECT * FROM users
+                SELECT user_id, wizard_name, house, level
+                FROM users
                 WHERE user_id != %s
                   AND ABS(level - %s) <= %s
-                  AND is_banned = FALSE
-                ORDER BY RANDOM() LIMIT 5
+                  AND COALESCE(is_banned, FALSE) = FALSE
+                ORDER BY RANDOM()
+                LIMIT 5
             """, user_id, user["level"], MAX_LEVEL_DIFF_PVP)
+
         if not candidates:
-            await query.edit_message_text("😔 Нет доступных противников. Попробуй позже.")
+            await query.edit_message_text(
+                "😔 Сейчас нет доступных противников.\n\n"
+                "Причины обычно такие: нет других игроков, большая разница уровней или игроки забанены."
+            )
             return
+
         buttons = []
         for c in candidates:
             h = HOUSE_EMOJI.get(c["house"], "🏠")
@@ -297,10 +308,7 @@ async def cb_duel_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 callback_data=f"duel_challenge:{c['user_id']}"
             )])
         buttons.append([InlineKeyboardButton("🔀 Другие", callback_data="duel_menu:random")])
-        await query.edit_message_text(
-            "⚔️ Выбери противника:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+        await query.edit_message_text("⚔️ Выбери противника:", reply_markup=InlineKeyboardMarkup(buttons))
 
     elif action == "by_id":
         ctx.user_data["awaiting_duel_id"] = True

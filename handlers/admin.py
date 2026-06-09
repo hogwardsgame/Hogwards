@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes, CommandHandler
 from config import ADMIN_IDS
 from database import (
     get_conn, fetchval, fetchall, fetchrow, execute,
-    get_user, ban_user, unban_user, add_xp, add_gold, log_admin_action,
+    get_user, ban_user, unban_user, add_xp, add_gold, log_admin_action, add_item_to_inventory,
 )
 from game.items import ITEMS, item_display_name
 from game.spells import SPELLS, spell_display_name
@@ -20,7 +20,7 @@ _maintenance_mode = False
 
 def admin_only(func):
     async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        if update.effective_user.id not in ADMIN_IDS:
+        if not ADMIN_IDS or update.effective_user.id not in ADMIN_IDS:
             await update.message.reply_text("⛔ Доступ запрещён.")
             return
         return await func(update, ctx)
@@ -89,10 +89,10 @@ async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"👥 Всего игроков: {total}",
         f"🆕 Сегодня: {today}",
         f"🔨 Забанено: {banned}",
-        f"📈 Средний уровень: {avg_level}",
+        f"📈 Средний уровень: {avg_level or 0}",
         f"⚔️ Дуэлей сегодня: {pvp_today}",
         f"🏰 PvE боёв сегодня: {pve_today}",
-        f"💰 Золото в обращении: {total_gold:,}",
+        f"💰 Золото в обращении: {total_gold or 0:,}",
         f"🌍 Активных мировых боссов: {wb_active}",
         f"🛡️ Отрядов: {squads}",
         f"🏛️ Активных лотов: {active_lots}",
@@ -154,12 +154,7 @@ async def cmd_give_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     item = ITEMS.get(item_id)
     if not item:
         await update.message.reply_text(f"❌ Предмет '{item_id}' не найден."); return
-    with get_conn() as conn:
-        execute(conn, """
-            INSERT INTO inventory (user_id, item_id, quantity)
-            VALUES (%s, %s, 1)
-            ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = inventory.quantity + 1
-        """, target_id, item_id)
+    add_item_to_inventory(target_id, item_id, 1)
     name = item_display_name(item, "ru")
     log_admin_action(update.effective_user.id, "give_item", target_id, item_id)
     await update.message.reply_text(f"✅ Предмет {name} выдан игроку {target_id}.")
@@ -449,24 +444,27 @@ async def cmd_admin_log(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ── Контент ───────────────────────────────────────────────────────────────────
 @admin_only
 async def cmd_list_items(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    named = [(iid, i) for iid, i in ITEMS.items()
-             if not iid.endswith(("_common","_uncommon","_rare","_very_rare","_epic","_legendary","_mythical","_abyssal"))]
-    lines = [f"🎒 *Именные предметы ({len(named)}):*\n"]
-    for iid, item in named[:50]:
+    rows = sorted(ITEMS.items())
+    lines = [f"🎒 Список предметов ({len(rows)}):\n"]
+    for iid, item in rows:
         r = item.get("rarity", "")
-        lines.append(f"• `{iid}` — {item_display_name(item,'ru')} ({r})")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        lines.append(f"• {iid} — {item_display_name(item,'ru')} ({r})")
+
+    text = "\n".join(lines)
+    for i in range(0, len(text), 3900):
+        await update.message.reply_text(text[i:i + 3900])
 
 
 @admin_only
 async def cmd_list_spells(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    lines = [f"✨ *Заклинания ({len(SPELLS)}):*\n"]
-    for sid, spell in list(SPELLS.items())[:60]:
-        lines.append(f"• `{sid}` — {spell_display_name(sid,'ru')} ({spell.get('rarity','')})")
+    rows = sorted(SPELLS.items())
+    lines = [f"✨ Список заклинаний ({len(rows)}):\n"]
+    for sid, spell in rows:
+        lines.append(f"• {sid} — {spell_display_name(sid,'ru')} ({spell.get('rarity','')})")
+
     text = "\n".join(lines)
-    if len(text) > 4000:
-        text = text[:4000] + "\n_...и другие_"
-    await update.message.reply_text(text, parse_mode="Markdown")
+    for i in range(0, len(text), 3900):
+        await update.message.reply_text(text[i:i + 3900])
 
 
 @admin_only
@@ -506,3 +504,4 @@ def register_admin_handlers(app):
     app.add_handler(CommandHandler("list_items",      cmd_list_items))
     app.add_handler(CommandHandler("list_spells",     cmd_list_spells))
     app.add_handler(CommandHandler("list_bosses",     cmd_list_bosses))
+    app.add_handler(CommandHandler("list_boses",      cmd_list_bosses))

@@ -7,7 +7,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from database import get_user, user_exists, get_conn, execute, fetchrow, fetchall
 from utils.i18n import t
-from game.items import ITEMS, item_display_name, RARITY_NAMES, EQUIPMENT_SLOTS, SLOT_EMOJI
+from game.items import ITEMS, item_display_name, RARITY_NAMES, RARITY_NAMES_RU, EQUIPMENT_SLOTS, SLOT_EMOJI
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ async def cmd_inventory(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     equipped_text = "\n".join(
-        f"{SLOT_EMOJI.get(slot,'🔲')} {ITEMS.get(iid, {}).get('id', iid)}"
+        f"{SLOT_EMOJI.get(slot,'🔲')} {item_display_name(ITEMS.get(iid, {'id': iid, 'name': iid}), 'ru')}"
         for slot, iid in equipped.items()
     ) or "—"
 
@@ -137,7 +137,10 @@ async def cb_inv_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         b_max = item.get("stat_max", 0)
         bonus_text = f"\n+{b_min}–{b_max} к `{stat}`"
 
-    text = f"{rarity_emoji} *{name}*\nРедкость: {item.get('rarity','?')}{bonus_text}"
+    desc = item.get("desc_ru") or "Описание пока не добавлено."
+    rarity_text = RARITY_NAMES_RU.get(item.get("rarity", "common"), item.get("rarity", "?"))
+    qty_text = f"\nКоличество: {row.get('quantity', 1)}" if row.get("quantity", 1) > 1 else ""
+    text = f"{rarity_emoji} *{name}*\nРедкость: {rarity_text}{qty_text}\n\n📜 {desc}{bonus_text}"
     markup = _item_action_keyboard(inv_id, item, is_equipped)
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
 
@@ -231,10 +234,18 @@ async def cb_inv_use(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         with get_conn() as conn:
             execute(conn, "UPDATE users SET hp = LEAST(hp + %s, max_hp) WHERE user_id=%s", int(value), user_id)
         msg = f"💚 +{int(value)} ХП"
+    elif effect == "hp_full":
+        with get_conn() as conn:
+            execute(conn, "UPDATE users SET hp = max_hp WHERE user_id=%s", user_id)
+        msg = "💚 здоровье полностью восстановлено"
     elif effect == "mana":
         with get_conn() as conn:
             execute(conn, "UPDATE users SET mana = LEAST(mana + %s, max_mana) WHERE user_id=%s", int(value), user_id)
         msg = f"💧 +{int(value)} маны"
+    elif effect == "mana_full":
+        with get_conn() as conn:
+            execute(conn, "UPDATE users SET mana = max_mana WHERE user_id=%s", user_id)
+        msg = "💧 мана полностью восстановлена"
     else:
         msg = f"✨ Эффект применён: {effect}"
 

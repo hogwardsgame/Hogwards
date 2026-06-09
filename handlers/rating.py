@@ -11,7 +11,7 @@ async def show_rating(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(user_id, "not_registered"))
         return
 
-    rows = get_leaderboard(10)
+    rows = get_leaderboard(limit=10)
     text = t(user_id, "rating_header")
     for i, row in enumerate(rows, 1):
         text += t(user_id, "rating_row",
