@@ -77,5 +77,7 @@
   "inventory_empty": "🎒 Inventory is empty.",
   "auction_max_lots": "❌ You already have 3 active lots (maximum).",
   "auction_no_items": "❌ No items eligible for auction.",
-  "event_none_active": "🎉 No active events right now. Watch for announcements!"
+  "event_none_active": "🎉 No active events right now. Watch for announcements!",
+  "btn_other_commands": "📌 Outros comandos",
+  "other_commands_text": "📌 *Outros comandos*\n━━━━━━━━━━━━━━━━━━━━\n/profile — perfil e atributos\n/inventory — inventário e equipamento\n/shop — loja e troca de casa\n/quests — missões\n/list_items — lista de itens com atributos \\(admin\\)\n/list_spells — lista de feitiços com atributos \\(admin\\)"
 }
