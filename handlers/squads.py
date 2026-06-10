@@ -319,6 +319,10 @@ async def cb_squad_decline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def handle_squad_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
+    # Ранний выход если нет активного ожидания ввода
+    if user_id not in _awaiting_squad_name and not ctx.user_data.get("awaiting_squad_invite"):
+        return
+
     # Ввод названия нового отряда
     if user_id in _awaiting_squad_name:
         _awaiting_squad_name.discard(user_id)

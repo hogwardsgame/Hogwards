@@ -622,6 +622,8 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def handle_duel_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handles free-text input during duel flow (e.g. target user ID)."""
+    if not ctx.user_data.get("awaiting_duel_id"):
+        return
     await handle_duel_text_input(update, ctx)
 
 
