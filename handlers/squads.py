@@ -11,6 +11,7 @@ from database import (
     add_gold, get_conn, execute, fetchrow, fetchall, fetchval,
 )
 from utils.i18n import t
+from utils.helpers import md_escape
 from config import SQUAD_MAX_MEMBERS, SQUAD_CREATE_COST
 
 logger = logging.getLogger(__name__)
@@ -264,7 +265,7 @@ async def cb_squad_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         await ctx.bot.send_message(
             leader_id,
-            f"📨 *{user['wizard_name']}* (ур.{user['level']}) хочет вступить в отряд «{squad['name']}»!",
+            f"📨 *{md_escape(user['wizard_name'])}* (ур.{user['level']}) хочет вступить в отряд «{md_escape(squad['name'])}»!",
             parse_mode="Markdown",
             reply_markup=markup
         )
@@ -384,7 +385,7 @@ async def handle_squad_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             user = get_user(user_id)
             await ctx.bot.send_message(
                 target_id,
-                f"📨 *{user['wizard_name']}* приглашает тебя в отряд «{squad['name']}»!",
+                f"📨 *{md_escape(user['wizard_name'])}* приглашает тебя в отряд «{md_escape(squad['name'])}»!",
                 parse_mode="Markdown",
                 reply_markup=markup
             )

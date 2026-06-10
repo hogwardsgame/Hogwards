@@ -20,6 +20,7 @@ from database import (
     add_xp, add_gold, add_house_points, get_conn, execute, fetchrow, fetchall,
 )
 from utils.i18n import t
+from utils.helpers import md_escape
 from utils.helpers import house_emoji
 from game.battle_engine import (
     fresh_status, tick_status, resolve_turn, determine_turn_order,
@@ -379,7 +380,7 @@ async def _send_duel_invite(update, ctx, user_id: int, target: dict):
         await ctx.bot.send_message(
             target_id,
             f"⚔️ *Вызов на дуэль!*\n\n"
-            f"Волшебник *{player['wizard_name']}* "
+            f"Волшебник *{md_escape(player['wizard_name'])}* "
             f"({HOUSE_EMOJI.get(player['house'], '🏠')}, ур.{player['level']}) "
             f"вызывает тебя на дуэль!\n\n"
             f"У тебя {DUEL_INVITE_TIMEOUT} секунд на ответ.",
@@ -391,7 +392,7 @@ async def _send_duel_invite(update, ctx, user_id: int, target: dict):
         return
 
     await update.message.reply_text(
-        f"📨 Вызов отправлен игроку *{target['wizard_name']}*!\n"
+        f"📨 Вызов отправлен игроку *{md_escape(target['wizard_name'])}*!\n"
         f"Ждём ответа {DUEL_INVITE_TIMEOUT} секунд...",
         parse_mode="Markdown"
     )
@@ -433,7 +434,7 @@ async def _send_duel_invite_from_query(query, ctx, user_id: int, target: dict):
         return
 
     await query.edit_message_text(
-        f"📨 Вызов отправлен *{target['wizard_name']}*!",
+        f"📨 Вызов отправлен *{md_escape(target['wizard_name'])}*!",
         parse_mode="Markdown"
     )
 
@@ -500,7 +501,7 @@ async def cb_duel_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         await ctx.bot.send_message(
             challenger_id,
-            f"✅ *{opp['wizard_name']}* принял вызов!\n\nПервым ходит: *{first_name}*",
+            f"✅ *{md_escape(opp['wizard_name'])}* принял вызов!\n\nПервым ходит: *{md_escape(first_name)}*",
             parse_mode="Markdown"
         )
     except Exception:
@@ -519,7 +520,7 @@ async def cb_duel_decline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         await ctx.bot.send_message(
             challenger_id,
-            f"❌ *{opp['wizard_name']}* отклонил твой вызов.",
+            f"❌ *{md_escape(opp['wizard_name'])}* отклонил твой вызов.",
             parse_mode="Markdown"
         )
     except Exception:

@@ -484,11 +484,12 @@ async def cmd_list_bosses(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from handlers.world_bosses import WORLD_BOSSES
     regular_bosses = [bid for bid, m in MONSTERS.items() if m.get("is_boss")]
     wb_list = list(WORLD_BOSSES.keys())
+    # Boss IDs содержат _ поэтому не используем Markdown
     lines = [
-        f"👑 *Обычные боссы:* {', '.join(regular_bosses)}",
-        f"\n🌍 *Мировые боссы:* {', '.join(wb_list)}",
+        f"👑 Обычные боссы: {', '.join(regular_bosses)}",
+        f"\n🌍 Мировые боссы: {', '.join(wb_list)}",
     ]
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines))
 
 
 def register_admin_handlers(app):

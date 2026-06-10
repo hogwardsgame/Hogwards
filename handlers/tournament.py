@@ -16,6 +16,7 @@ from database import (
 from game.battle_engine import fresh_status, resolve_turn, tick_status, determine_turn_order
 from game.spells import SPELLS
 from utils.i18n import t
+from utils.helpers import md_escape
 from config import TOURNAMENT_ENTRY_FEE, XP_REWARDS, GOLD_REWARDS, HOUSE_POINTS_REWARDS
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ async def cmd_tournament(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         lines = []
         for p in parts:
             status = "❌" if p["eliminated"] else "✅"
-            lines.append(f"{status} {p['wizard_name']} — {p['wins']}П/{p['losses']}П")
+            lines.append(f"{status} {md_escape(p['wizard_name'])} — {p['wins']}П/{p['losses']}П")
 
         await update.message.reply_text(
             f"🏆 *Турнир #{t_id}* — {tour['status']}\n\n"
@@ -105,7 +106,7 @@ async def cmd_tournament(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "🏆 *Турнир волшебников*\n\n"
             "Сейчас нет активного турнира.\n"
             "Следующий начнётся автоматически.\n\n"
-            "💡 Администратор может запустить турнир командой /admin_tournament",
+            "💡 Администратор может запустить турнир командой /admin\_tournament",
             parse_mode="Markdown"
         )
 
@@ -131,7 +132,7 @@ async def cb_tour_register(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     _registrants.append(user_id)
     await query.edit_message_text(
-        f"✅ *{user['wizard_name']}* зарегистрирован!\n\n"
+        f"✅ *{md_escape(user['wizard_name'])}* зарегистрирован!\n\n"
         f"Участников: {len(_registrants)}/{TOURNAMENT_MAX_PLAYERS}\n"
         f"Взнос {TOURNAMENT_ENTRY_FEE} 💰 списан.",
         parse_mode="Markdown"
@@ -256,7 +257,7 @@ async def _start_tournament(ctx, registrant_ids: list | None = None):
     announce = (
         f"🏆 *Турнир #{tour_id} начинается!*\n\n"
         f"Участников: {len(players)}\n\n"
-        + "\n".join(f"⚔️ {p['wizard_name']} (ур.{p['level']})" for p in players)
+        + "\n".join(f"⚔️ {md_escape(p['wizard_name'])} (ур.{p['level']})" for p in players)
     )
     for p in players:
         try:
@@ -279,7 +280,7 @@ async def _start_tournament(ctx, registrant_ids: list | None = None):
             # Нечётный — автопроход
             bye = remaining[-1]
             next_round.append(bye)
-            round_results.append(f"🎯 {bye['wizard_name']} — проходит автоматически")
+            round_results.append(f"🎯 {md_escape(bye['wizard_name'])} — проходит автоматически")
 
         for a, b in pairs:
             result = _simulate_duel(a, b)
@@ -301,7 +302,7 @@ async def _start_tournament(ctx, registrant_ids: list | None = None):
                 """, tour_id, loser["user_id"])
 
             round_results.append(
-                f"✅ {winner['wizard_name']} победил {loser['wizard_name']}\n"
+                f"✅ {md_escape(winner['wizard_name'])} победил {md_escape(loser['wizard_name'])}\n"
                 + "\n".join(f"  _{l}_" for l in result["log"])
             )
 
@@ -363,7 +364,7 @@ async def _start_tournament(ctx, registrant_ids: list | None = None):
     # Финальное объявление
     final_text = (
         f"🏆 *Турнир #{tour_id} завершён!*\n\n"
-        f"👑 Чемпион: *{champion['wizard_name']}*\n"
+        f"👑 Чемпион: *{md_escape(champion['wizard_name'])}*\n"
         f"Поздравляем!"
     )
     for p in players:

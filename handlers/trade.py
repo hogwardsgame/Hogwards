@@ -10,6 +10,7 @@ from database import (
     get_user, user_exists, transfer_gold, get_conn, fetchrow,
 )
 from utils.i18n import t
+from utils.helpers import md_escape
 from config import TRADE_MIN_AMOUNT, TRADE_MAX_AMOUNT, TRADE_TAX_PERCENT
 
 logger = logging.getLogger(__name__)
@@ -120,7 +121,7 @@ async def handle_trade_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         session["target_id"] = target_id
         session["step"]      = "amount"
         await update.message.reply_text(
-            f"💰 Получатель: *{target['wizard_name']}*\n\n"
+            f"💰 Получатель: *{md_escape(target['wizard_name'])}*\n\n"
             f"Введи *сумму* для перевода ({TRADE_MIN_AMOUNT}–{TRADE_MAX_AMOUNT} 💰):",
             parse_mode="Markdown"
         )
@@ -167,7 +168,7 @@ async def cb_trade_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(
         f"✅ *Перевод выполнен!*\n\n"
-        f"→ {target['wizard_name']} получил *{amount} 💰*\n"
+        f"→ {md_escape(target['wizard_name'])} получил *{amount} 💰*\n"
         f"Комиссия: {tax} 💰\n"
         f"Твой баланс: {sender['gold'] - amount - tax} 💰",
         parse_mode="Markdown"
@@ -177,7 +178,7 @@ async def cb_trade_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await ctx.bot.send_message(
             target_id,
             f"💰 *Получен перевод!*\n\n"
-            f"От: *{sender['wizard_name']}*\n"
+            f"От: *{md_escape(sender['wizard_name'])}*\n"
             f"Сумма: *{amount} 💰*",
             parse_mode="Markdown"
         )
