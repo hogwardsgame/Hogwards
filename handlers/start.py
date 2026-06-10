@@ -55,10 +55,10 @@ def other_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
         kb.add(
             KeyboardButton(t(user_id, "btn_admin_stats")),
             KeyboardButton(t(user_id, "btn_admin_items")),
+            KeyboardButton(t(user_id, "btn_admin_spells")),
             KeyboardButton(t(user_id, "btn_admin_economy")),
             KeyboardButton(t(user_id, "btn_admin_log")),
             KeyboardButton(t(user_id, "btn_admin_bosses")),
-            KeyboardButton(t(user_id, "btn_admin_spells")),
             KeyboardButton(t(user_id, "btn_admin_maintenance"))
         )
     return kb
@@ -124,89 +124,3 @@ async def cb_tutorial(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["tutorial_step"] = step
     if step <= 5:
         markup = tutorial_keyboard(user_id) if step < 5 else None
-        await query.edit_message_text(t(user_id, f"tutorial_{step}"), reply_markup=markup)
-        if step == 5:
-            await query.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
-            return ConversationHandler.END
-    return TUTORIAL
-
-async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    exists = await _db(user_exists, user_id)
-    if not exists:
-        await update.message.reply_text(t(user_id, "not_registered"))
-        return
-    await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
-
-async def handle_other_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-    user_id = update.effective_user.id
-    text = update.message.text
-
-    # возврат в основное меню фиксированно
-    if text in [t(user_id, "btn_back_main_menu"), "Основное меню"]:
-        await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
-        return
-
-    player_actions = {
-        t(user_id, "btn_profile"): "handlers.profile.cmd_profile",
-        t(user_id, "btn_inventory"): "handlers.inventory.cmd_inventory",
-        t(user_id, "btn_shop"): "handlers.shop.cmd_shop",
-        t(user_id, "btn_lessons"): "handlers.lessons.cmd_lessons",
-        t(user_id, "btn_quests"): "handlers.quests.cmd_quests",
-        t(user_id, "btn_house"): "handlers.house_points.cmd_house",
-        t(user_id, "btn_worldboss"): "handlers.world_bosses.cmd_worldboss",
-        t(user_id, "btn_tournament"): "handlers.tournament.cmd_tournament",
-        t(user_id, "btn_hogsmeade"): "handlers.hogsmeade.cmd_hogsmeade",
-        t(user_id, "btn_room"): "handlers.room_of_requirement.cmd_room",
-        t(user_id, "btn_potions"): "handlers.potion_system.cmd_potions",
-        t(user_id, "btn_squad"): "handlers.squads.cmd_squad",
-        t(user_id, "btn_trade"): "handlers.trade.cmd_trade",
-        t(user_id, "btn_achievements"): "handlers.achievements.cmd_achievements",
-        t(user_id, "btn_titles"): "handlers.titles.cmd_titles",
-        t(user_id, "btn_explore"): "handlers.locations.cmd_explore",
-    }
-
-    admin_actions = {}
-    if user_id in ADMIN_USER_IDS:
-        admin_actions = {
-            t(user_id, "btn_admin_panel"): "handlers.admin.cmd_admin",
-            t(user_id, "btn_admin_stats"): "handlers.admin.cmd_stats",
-            t(user_id, "btn_admin_items"): "handlers.admin.cmd_list_items",
-            t(user_id, "btn_admin_spells"): "handlers.admin.cmd_list_spells",
-            t(user_id, "btn_admin_economy"): "handlers.admin.cmd_economy_info",
-            t(user_id, "btn_admin_log"): "handlers.admin.cmd_admin_log",
-            t(user_id, "btn_admin_bosses"): "handlers.admin.cmd_list_bosses",
-            t(user_id, "btn_admin_maintenance"): "handlers.admin.cmd_maintenance",
-        }
-
-    action = player_actions.get(text) or admin_actions.get(text)
-    if not action:
-        return
-
-    try:
-        module_name, func_name = action.rsplit(".", 1)
-        import importlib
-        func = getattr(importlib.import_module(module_name), func_name)
-        await func(update, ctx)
-    except Exception:
-        logger.exception("Failed to handle menu button %s for user %s", text, user_id)
-        await update.message.reply_text(t(user_id, "menu_action_error"))
-
-def get_conversation_handler() -> ConversationHandler:
-    return ConversationHandler(
-        entry_points=[CommandHandler("start", cmd_start)],
-        states={
-            CHOOSE_LANG: [CallbackQueryHandler(cb_choose_lang, pattern=r"^lang:")],
-            ENTER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name_input)],
-            TUTORIAL: [CallbackQueryHandler(cb_tutorial, pattern=r"^tutorial:")],
-        },
-        fallbacks=[CommandHandler("start", cmd_start)],
-        allow_reentry=True,
-    )
-
-def register_start_handlers(app):
-    app.add_handler(get_conversation_handler())
-    app.add_handler(CommandHandler("menu", cmd_menu))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_other_commands), group=0)
