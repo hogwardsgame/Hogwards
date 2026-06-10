@@ -258,9 +258,14 @@ async def handle_main_menu_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYP
             try:
                 func = _get_func(module, func_name)
                 await func(update, ctx)
-            except Exception:
-                logger.exception("Ошибка при вызове %s.%s для user %s", module, func_name, user_id)
-                await update.message.reply_text(t(user_id, "menu_action_error"))
+            except Exception as _err:
+                import traceback
+                tb = traceback.format_exc()
+                logger.error("Ошибка при вызове %s.%s для user %s:\n%s", module, func_name, user_id, tb)
+                await update.message.reply_text(
+                    f"⚠️ Ошибка в {func_name}:\n<code>{str(_err)[:300]}</code>",
+                    parse_mode="HTML"
+                )
             return
 
 

@@ -246,6 +246,12 @@ async def cmd_worldboss(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             callback_data=f"wb_attack:{wb['id']}:{sid}"
         )])
 
+    if not buttons:
+        await update.message.reply_text(
+            "❌ У тебя нет заклинаний для атаки!\n"
+            "Выучи заклинания через 📚 Уроки."
+        )
+        return
     markup = InlineKeyboardMarkup(buttons)
     panel  = _format_wb_panel(boss_data, wb, top, user_dmg)
     await update.message.reply_text(panel, parse_mode="Markdown", reply_markup=markup)
