@@ -1,3 +1,4 @@
+# handlers/start.py
 import logging
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
@@ -143,6 +144,11 @@ async def handle_other_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
+    # возврат в основное меню фиксированно
+    if text in [t(user_id, "btn_back_main_menu"), "Основное меню"]:
+        await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
+        return
+
     player_actions = {
         t(user_id, "btn_profile"): "handlers.profile.cmd_profile",
         t(user_id, "btn_inventory"): "handlers.inventory.cmd_inventory",
@@ -160,27 +166,23 @@ async def handle_other_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         t(user_id, "btn_achievements"): "handlers.achievements.cmd_achievements",
         t(user_id, "btn_titles"): "handlers.titles.cmd_titles",
         t(user_id, "btn_explore"): "handlers.locations.cmd_explore",
-        t(user_id, "btn_back_main_menu"): None,
     }
 
-    admin_actions = {
-        t(user_id, "btn_admin_panel"): "handlers.admin.cmd_admin",
-        t(user_id, "btn_admin_stats"): "handlers.admin.cmd_stats",
-        t(user_id, "btn_admin_items"): "handlers.admin.cmd_list_items",
-        t(user_id, "btn_admin_spells"): "handlers.admin.cmd_list_spells",
-        t(user_id, "btn_admin_economy"): "handlers.admin.cmd_economy_info",
-        t(user_id, "btn_admin_log"): "handlers.admin.cmd_admin_log",
-        t(user_id, "btn_admin_bosses"): "handlers.admin.cmd_list_bosses",
-        t(user_id, "btn_admin_maintenance"): "handlers.admin.cmd_maintenance",
-    }
+    admin_actions = {}
+    if user_id in ADMIN_USER_IDS:
+        admin_actions = {
+            t(user_id, "btn_admin_panel"): "handlers.admin.cmd_admin",
+            t(user_id, "btn_admin_stats"): "handlers.admin.cmd_stats",
+            t(user_id, "btn_admin_items"): "handlers.admin.cmd_list_items",
+            t(user_id, "btn_admin_spells"): "handlers.admin.cmd_list_spells",
+            t(user_id, "btn_admin_economy"): "handlers.admin.cmd_economy_info",
+            t(user_id, "btn_admin_log"): "handlers.admin.cmd_admin_log",
+            t(user_id, "btn_admin_bosses"): "handlers.admin.cmd_list_bosses",
+            t(user_id, "btn_admin_maintenance"): "handlers.admin.cmd_maintenance",
+        }
 
-    action = player_actions.get(text)
-    if action is None and user_id in ADMIN_USER_IDS:
-        action = admin_actions.get(text)
-
-    if action is None:
-        if text == t(user_id, "btn_back_main_menu"):
-            await update.message.reply_text(t(user_id, "main_menu"), reply_markup=main_menu_keyboard(user_id))
+    action = player_actions.get(text) or admin_actions.get(text)
+    if not action:
         return
 
     try:
