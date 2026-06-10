@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     # Вставьте сюда ваш токен
-    TOKEN = "YOUR_BOT_TOKEN"
+    TOKEN = "8666831108:AAHjkwujZLXDaqp0RLkiN2rimoool9eyBl8"
 
     # Создаем приложение бота
     app = ApplicationBuilder().token(TOKEN).build()
