@@ -645,13 +645,17 @@ def get_leaderboard(category: str = "level", limit: int = 10):
     """Многокатегорийный рейтинг."""
     with get_conn() as conn:
         if category == "level":
+            from config import ADMIN_IDS
+            exclude = list(ADMIN_IDS) if ADMIN_IDS else [0]
             return fetchall(conn,
-                "SELECT wizard_name, house, level, xp FROM users ORDER BY level DESC, xp DESC LIMIT %s",
-                limit)
+                "SELECT wizard_name, house, level, xp FROM users WHERE user_id != ALL(%s) ORDER BY level DESC, xp DESC LIMIT %s",
+                exclude, limit)
         elif category == "gold":
+            from config import ADMIN_IDS
+            exclude = tuple(ADMIN_IDS) if ADMIN_IDS else (0,)
             return fetchall(conn,
-                "SELECT wizard_name, house, gold FROM users ORDER BY gold DESC LIMIT %s",
-                limit)
+                "SELECT wizard_name, house, gold FROM users WHERE user_id != ALL(%s) ORDER BY gold DESC LIMIT %s",
+                list(exclude), limit)
         elif category == "pvp":
             return fetchall(conn, """
                 SELECT u.wizard_name, u.house, s.pvp_wins
