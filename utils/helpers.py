@@ -59,3 +59,11 @@ def house_emoji(house: str) -> str:
 
 def medal(pos: int) -> str:
     return {1: "🥇", 2: "🥈", 3: "🥉"}.get(pos, f"{pos}.")
+
+
+def md_escape(text: str) -> str:
+    """Экранирует спецсимволы Markdown v1 для безопасного использования в parse_mode='Markdown'."""
+    # В Markdown v1 нужно экранировать: _ * ` [
+    for ch in ('_', '*', '`', '['):
+        text = text.replace(ch, '\\' + ch)
+    return str(text)
