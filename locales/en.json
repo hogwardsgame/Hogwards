@@ -103,5 +103,6 @@
   "btn_admin_items": "📦 All items",
   "btn_admin_spells": "✨ All spells",
   "btn_admin_bosses": "🐲 All bosses",
-  "btn_admin_maintenance": "🛠 Maintenance"
+  "btn_admin_maintenance": "🛠 Maintenance",
+  "other_menu": "🗺 Other commands\n\nChoose a section:"
 }

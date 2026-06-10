@@ -103,5 +103,6 @@
   "btn_admin_items": "📦 Все предметы",
   "btn_admin_spells": "✨ Все заклинания",
   "btn_admin_bosses": "🐲 Все боссы",
-  "btn_admin_maintenance": "🛠 Тех. режим"
+  "btn_admin_maintenance": "🛠 Тех. режим",
+  "other_menu": "🗺 Другие команды\n\nВыбери раздел:"
 }

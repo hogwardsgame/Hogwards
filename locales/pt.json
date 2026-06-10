@@ -103,5 +103,6 @@
   "btn_admin_items": "📦 Itens",
   "btn_admin_spells": "✨ Feitiços",
   "btn_admin_bosses": "🐲 Chefes",
-  "btn_admin_maintenance": "🛠 Manutenção"
+  "btn_admin_maintenance": "🛠 Manutenção",
+  "other_menu": "🗺 Outros comandos\n\nEscolha uma seção:"
 }
