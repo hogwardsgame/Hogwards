@@ -130,7 +130,6 @@ async def cmd_titles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_title_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
-    await query.answer()
     user_id  = query.from_user.id
     title_id = query.data.split(":", 1)[1]
 

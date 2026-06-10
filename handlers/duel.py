@@ -528,7 +528,6 @@ async def cb_duel_decline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
     parts   = query.data.split(":")
     duel_id, actor_key, spell_id = int(parts[1]), parts[2], parts[3]
     user_id = query.from_user.id
@@ -622,10 +621,7 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_duel_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_duel"):
-        await cmd_duel(update, ctx)
-        return
+    """Handles free-text input during duel flow (e.g. target user ID)."""
     await handle_duel_text_input(update, ctx)
 
 

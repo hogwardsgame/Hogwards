@@ -33,13 +33,8 @@ async def show_house_cup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
-async def handle_rating_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_rating"):
-        await show_rating(update, ctx)
-
 
 def register_rating_handlers(app):
     app.add_handler(CommandHandler("rating", show_rating))
     app.add_handler(CommandHandler("housecup", show_house_cup))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rating_button), group=2)
+    

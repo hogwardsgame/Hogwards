@@ -352,13 +352,6 @@ async def finalize_expired_lots(bot):
                 logger.error(f"auction notify error: {e}")
 
 
-async def handle_auction_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_auction"):
-        await cmd_auction(update, ctx)
-
 
 def register_auction_handlers(app):
     app.add_handler(_sell_conversation())
@@ -367,4 +360,4 @@ def register_auction_handlers(app):
     app.add_handler(CallbackQueryHandler(cb_auc_view, pattern=r"^auc_view:"))
     app.add_handler(CallbackQueryHandler(cb_auc_bid,  pattern=r"^auc_bid:"))
     app.add_handler(CallbackQueryHandler(cb_auc_back, pattern=r"^auc_back"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_auction_button), group=9)
+    

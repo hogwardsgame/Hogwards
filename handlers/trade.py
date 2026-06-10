@@ -132,7 +132,6 @@ async def handle_trade_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_trade_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query     = update.callback_query
-    await query.answer()
     sender_id = int(query.data.split(":")[1])
 
     # Только сам отправитель может подтвердить
@@ -183,7 +182,6 @@ async def cb_trade_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_trade_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query     = update.callback_query
-    await query.answer()
     sender_id = int(query.data.split(":")[1])
 
     if query.from_user.id != sender_id:
@@ -233,5 +231,5 @@ def register_trade_handlers(app):
     app.add_handler(CommandHandler("tradelog", cmd_trade_log))
     app.add_handler(CallbackQueryHandler(cb_trade_confirm, pattern=r"^trade_confirm:"))
     app.add_handler(CallbackQueryHandler(cb_trade_cancel,  pattern=r"^trade_cancel:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_trade_text), group=8)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_trade_text), group=13)
 

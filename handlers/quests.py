@@ -298,14 +298,9 @@ async def _complete_quest(query, user_id: int, quest: dict):
     )
 
 
-async def handle_quest_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_quests"):
-        await cmd_quests(update, ctx)
-
 
 def register_quests_handlers(app):
     app.add_handler(CommandHandler("quests", cmd_quests))
     app.add_handler(CallbackQueryHandler(cb_quest_open,   pattern=r"^quest_open:"))
     app.add_handler(CallbackQueryHandler(cb_quest_choice, pattern=r"^quest_choice:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_quest_button), group=10)
+    

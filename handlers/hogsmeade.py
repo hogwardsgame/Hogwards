@@ -256,7 +256,6 @@ async def cb_hm_rare(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_hm_buy_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     parts   = query.data.split(":")
@@ -287,7 +286,6 @@ async def cb_hm_buy_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_hm_buy_spell(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     parts    = query.data.split(":")
@@ -305,7 +303,6 @@ async def cb_hm_buy_spell(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     with get_conn() as conn:
-        # Проверяем, уже ли есть это заклинание
         existing = fetchrow(conn,
             "SELECT 1 FROM user_spells WHERE user_id = %s AND spell_id = %s",
             user_id, spell_id)

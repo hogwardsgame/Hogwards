@@ -83,8 +83,8 @@ async def cmd_inventory(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     equipped_text = "\n".join(
-        f"{SLOT_EMOJI.get(slot,'🔲')} {item_display_name(ITEMS.get(iid, {'id': iid, 'name': iid}), 'ru')}"
-        for slot, iid in equipped.items()
+        f"{SLOT_EMOJI.get(slot,'🔲')} {item_display_name(ITEMS.get(eq_data['item_id'], {'id': eq_data['item_id'], 'name': eq_data['item_id']}), 'ru')}"
+        for slot, eq_data in equipped.items()
     ) or "—"
 
     text = (
@@ -111,7 +111,6 @@ async def cb_inv_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_inv_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
-    await query.answer()
     user_id  = query.from_user.id
     inv_id   = int(query.data.split(":")[1])
 
@@ -145,7 +144,6 @@ async def cb_inv_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_inv_equip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     inv_id  = int(query.data.split(":")[1])
 
@@ -193,7 +191,6 @@ async def cb_inv_equip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_inv_unequip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     inv_id  = int(query.data.split(":")[1])
 
@@ -227,7 +224,6 @@ async def cb_inv_unequip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_inv_use(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     inv_id  = int(query.data.split(":")[1])
 
@@ -284,13 +280,6 @@ async def cb_inv_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_reply_markup(reply_markup=markup)
 
 
-async def handle_inventory_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_inventory"):
-        await cmd_inventory(update, ctx)
-
 
 def register_inventory_handlers(app):
     app.add_handler(CommandHandler("inventory", cmd_inventory))
@@ -300,4 +289,4 @@ def register_inventory_handlers(app):
     app.add_handler(CallbackQueryHandler(cb_inv_unequip, pattern=r"^inv_unequip:"))
     app.add_handler(CallbackQueryHandler(cb_inv_use,     pattern=r"^inv_use:"))
     app.add_handler(CallbackQueryHandler(cb_inv_back,    pattern=r"^inv_back"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_inventory_button), group=8)
+    

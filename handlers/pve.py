@@ -441,15 +441,10 @@ async def cb_pve_flee(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("🏃 Ты сбежал с поля боя!")
 
 
-async def handle_dungeon_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_dungeon"):
-        await cmd_dungeon(update, ctx)
-
 
 def register_pve_handlers(app):
     app.add_handler(CommandHandler("dungeon", cmd_dungeon))
     app.add_handler(CallbackQueryHandler(cb_pve_enter, pattern=r"^pve_enter:"))
     app.add_handler(CallbackQueryHandler(cb_pve_cast,  pattern=r"^pve_cast:"))
     app.add_handler(CallbackQueryHandler(cb_pve_flee,  pattern=r"^pve_flee"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_dungeon_button), group=5)
+    

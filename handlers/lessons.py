@@ -8,7 +8,7 @@ import random
 from datetime import datetime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters,
+    ContextTypes, CommandHandler, CallbackQueryHandler,
 )
 from database import (
     get_user, user_exists, get_daily_limit, increment_daily,
@@ -608,15 +608,8 @@ async def cb_lesson_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def handle_lessons_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_lessons"):
-        await cmd_lessons(update, ctx)
-
-
 def register_lessons_handlers(app):
     app.add_handler(CommandHandler("lessons", cmd_lessons))
     app.add_handler(CallbackQueryHandler(cb_lesson_start,  pattern=r"^lesson_start:"))
     app.add_handler(CallbackQueryHandler(cb_lesson_answer, pattern=r"^lesson_answer:"))
     app.add_handler(CallbackQueryHandler(cb_lesson_menu,   pattern=r"^lesson_menu"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_lessons_button), group=6)

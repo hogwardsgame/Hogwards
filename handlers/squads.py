@@ -275,7 +275,6 @@ async def cb_squad_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_squad_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
-    await query.answer()
     parts    = query.data.split(":")
     new_uid  = int(parts[1])
     squad_id = int(parts[2])
@@ -402,4 +401,4 @@ def register_squads_handlers(app):
     app.add_handler(CallbackQueryHandler(cb_squad_request,         pattern=r"^squad_request:"))
     app.add_handler(CallbackQueryHandler(cb_squad_accept,          pattern=r"^squad_accept:"))
     app.add_handler(CallbackQueryHandler(cb_squad_decline,         pattern=r"^squad_decline:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_squad_text), group=7)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_squad_text), group=12)

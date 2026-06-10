@@ -266,13 +266,6 @@ async def cb_shop_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=_shop_keyboard(stock))
 
 
-async def handle_shop_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_shop"):
-        await cmd_shop(update, ctx)
-
 
 def register_shop_handlers(app):
     app.add_handler(CommandHandler("shop", cmd_shop))
@@ -281,4 +274,4 @@ def register_shop_handlers(app):
     app.add_handler(CallbackQueryHandler(cb_shop_house_change, pattern=r"^shop_house_change$"))
     app.add_handler(CallbackQueryHandler(cb_shop_house_pick, pattern=r"^shop_house_pick:"))
     app.add_handler(CallbackQueryHandler(cb_shop_back, pattern=r"^shop_back$"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_shop_button), group=7)
+    

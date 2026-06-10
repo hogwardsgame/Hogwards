@@ -112,7 +112,6 @@ async def cmd_tournament(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_tour_register(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     if not _registration_open:

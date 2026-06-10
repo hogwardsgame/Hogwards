@@ -86,12 +86,7 @@ async def show_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"{header}\n{body}{combat}{equipment}", parse_mode="Markdown")
 
 
-async def handle_profile_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_profile"):
-        await show_profile(update, ctx)
-
 
 def register_profile_handlers(app):
     app.add_handler(CommandHandler("profile", show_profile))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_profile_button), group=1)
+    

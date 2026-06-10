@@ -556,7 +556,6 @@ async def cb_brew_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_brew_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     parts   = query.data.split(":")
     item_id = parts[1]

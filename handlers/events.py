@@ -88,7 +88,6 @@ async def cmd_events(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_event_fight(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
-    await query.answer()
     user_id  = query.from_user.id
     event_id = int(query.data.split(":")[1])
 
@@ -352,15 +351,10 @@ async def end_weekly_event(bot):
             logger.error(f"event reward notify: {e}")
 
 
-async def handle_events_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if update.message.text == t(user_id, "btn_events"):
-        await cmd_events(update, ctx)
-
 
 def register_events_handlers(app):
     app.add_handler(CommandHandler("events", cmd_events))
     app.add_handler(CallbackQueryHandler(cb_event_fight, pattern=r"^event_fight:"))
     app.add_handler(CallbackQueryHandler(cb_event_cast,  pattern=r"^event_cast:"))
     app.add_handler(CallbackQueryHandler(cb_event_flee,  pattern=r"^event_flee"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_events_button), group=11)
+    
