@@ -33,11 +33,15 @@ async def cmd_trade(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     _trade_sessions[user_id] = {"step": "target"}
+    markup = InlineKeyboardMarkup([[
+        InlineKeyboardButton("❌ Отмена", callback_data=f"trade_cancel:{user_id}"),
+    ]])
     await update.message.reply_text(
         "💰 *Перевод золота*\n\n"
         "Введи *Telegram ID* получателя:\n\n"
         "💡 Или сразу: `/trade <ID> <сумма>`",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=markup,
     )
 
 
@@ -100,7 +104,8 @@ async def handle_trade_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if step == "target":
         if not text.isdigit():
-            await update.message.reply_text("❌ ID должен быть числом.")
+            # Пользователь нажал кнопку меню вместо ввода ID — отменяем сессию молча
+            _trade_sessions.pop(user_id, None)
             return
         target_id = int(text)
         target = get_user(target_id)
@@ -122,7 +127,7 @@ async def handle_trade_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif step == "amount":
         if not text.isdigit():
-            await update.message.reply_text("❌ Сумма должна быть числом.")
+            _trade_sessions.pop(user_id, None)
             return
         amount = int(text)
         target_id = session["target_id"]
