@@ -104,5 +104,11 @@
   "btn_admin_spells": "✨ Все заклинания",
   "btn_admin_bosses": "🐲 Все боссы",
   "btn_admin_maintenance": "🛠 Тех. режим",
-  "other_menu": "🗺 Другие команды\n\nВыбери раздел:"
+  "other_menu": "🗺 Другие команды\n\nВыбери раздел:",
+  "btn_forest": "🌲 Запретный лес",
+  "btn_pets": "🐾 Питомцы",
+  "btn_blackmarket": "🕯️ Чёрный рынок",
+  "btn_journal": "📖 История",
+  "btn_horcruxes": "💎 Крестражи",
+  "btn_triwizard": "🏆 Турнир Трёх"
 }

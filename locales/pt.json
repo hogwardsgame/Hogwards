@@ -104,5 +104,11 @@
   "btn_admin_spells": "✨ Feitiços",
   "btn_admin_bosses": "🐲 Chefes",
   "btn_admin_maintenance": "🛠 Manutenção",
-  "other_menu": "🗺 Outros comandos\n\nEscolha uma seção:"
+  "other_menu": "🗺 Outros comandos\n\nEscolha uma seção:",
+  "btn_forest": "🌲 Floresta Proibida",
+  "btn_pets": "🐾 Animais",
+  "btn_blackmarket": "🕯️ Mercado Negro",
+  "btn_journal": "📖 Minha História",
+  "btn_horcruxes": "💎 Horcruxes",
+  "btn_triwizard": "🏆 Torneio Tribruxo"
 }

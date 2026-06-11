@@ -104,5 +104,11 @@
   "btn_admin_spells": "✨ All spells",
   "btn_admin_bosses": "🐲 All bosses",
   "btn_admin_maintenance": "🛠 Maintenance",
-  "other_menu": "🗺 Other commands\n\nChoose a section:"
+  "other_menu": "🗺 Other commands\n\nChoose a section:",
+  "btn_forest": "🌲 Forbidden Forest",
+  "btn_pets": "🐾 Pets",
+  "btn_blackmarket": "🕯️ Black Market",
+  "btn_journal": "📖 My History",
+  "btn_horcruxes": "💎 Horcruxes",
+  "btn_triwizard": "🏆 Triwizard"
 }

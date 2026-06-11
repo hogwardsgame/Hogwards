@@ -104,5 +104,11 @@
   "btn_admin_spells": "✨ Hechizos",
   "btn_admin_bosses": "🐲 Jefes",
   "btn_admin_maintenance": "🛠 Mantenimiento",
-  "other_menu": "🗺 Otros comandos\n\nElige una sección:"
+  "other_menu": "🗺 Otros comandos\n\nElige una sección:",
+  "btn_forest": "🌲 Bosque Prohibido",
+  "btn_pets": "🐾 Mascotas",
+  "btn_blackmarket": "🕯️ Mercado Negro",
+  "btn_journal": "📖 Mi Historia",
+  "btn_horcruxes": "💎 Horrocruxes",
+  "btn_triwizard": "🏆 Torneo Trimagico"
 }

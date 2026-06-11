@@ -104,5 +104,11 @@
   "btn_admin_spells": "✨ Zauber",
   "btn_admin_bosses": "🐲 Bosse",
   "btn_admin_maintenance": "🛠 Wartung",
-  "other_menu": "🗺 Andere Befehle\n\nWähle einen Bereich:"
+  "other_menu": "🗺 Andere Befehle\n\nWähle einen Bereich:",
+  "btn_forest": "🌲 Verbotener Wald",
+  "btn_pets": "🐾 Haustiere",
+  "btn_blackmarket": "🕯️ Schwarzmarkt",
+  "btn_journal": "📖 Meine Geschichte",
+  "btn_horcruxes": "💎 Horkruxe",
+  "btn_triwizard": "🏆 Trimagus"
 }
