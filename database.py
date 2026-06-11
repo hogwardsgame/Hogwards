@@ -263,6 +263,8 @@ CREATE TABLE IF NOT EXISTS daily_limits (
     world_boss    INT DEFAULT 0,
     room_req      INT DEFAULT 0,
     hogsmeade     INT DEFAULT 0,
+    forest        INT DEFAULT 0,
+    black_market  INT DEFAULT 0,
     PRIMARY KEY (user_id, date)
 );
 
@@ -446,6 +448,10 @@ ALTER TABLE house_points ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT
 -- чтобы при снятии/замене вычесть ровно тот же бонус.
 ALTER TABLE equipped_items ADD COLUMN IF NOT EXISTS bonus INT DEFAULT 0;
 
+-- Новые активности для ежедневных лимитов
+ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS forest       INT DEFAULT 0;
+ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS black_market INT DEFAULT 0;
+
 -- В старых базах у одного игрока могло быть несколько строк одного предмета.
 -- Перед уникальным индексом складываем количество в одну строку.
 WITH summed AS (
@@ -617,7 +623,8 @@ def add_gold(user_id: int, amount: int):
 
 def get_daily_limit(user_id: int, activity: str) -> int:
     allowed = {"pvp_duels", "pve_dungeons", "pve_quests", "lessons",
-               "auction_lots", "world_boss", "room_req", "hogsmeade"}
+               "auction_lots", "world_boss", "room_req", "hogsmeade",
+               "forest", "black_market"}
     if activity not in allowed:
         raise ValueError(f"Unknown activity: {activity}")
     with get_conn() as conn:
@@ -629,7 +636,8 @@ def get_daily_limit(user_id: int, activity: str) -> int:
 
 def increment_daily(user_id: int, activity: str):
     allowed = {"pvp_duels", "pve_dungeons", "pve_quests", "lessons",
-               "auction_lots", "world_boss", "room_req", "hogsmeade"}
+               "auction_lots", "world_boss", "room_req", "hogsmeade",
+               "forest", "black_market"}
     if activity not in allowed:
         raise ValueError(f"Unknown activity: {activity}")
     with get_conn() as conn:
