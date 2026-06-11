@@ -42,7 +42,9 @@ def main_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     buttons = [
         [KeyboardButton(t(user_id, "btn_profile")),   KeyboardButton(t(user_id, "btn_inventory"))],
         [KeyboardButton(t(user_id, "btn_shop")),       KeyboardButton(t(user_id, "btn_lessons"))],
-        [KeyboardButton(t(user_id, "btn_quests")),     KeyboardButton(t(user_id, "btn_other_commands"))],
+        [KeyboardButton(t(user_id, "btn_duel")),       KeyboardButton(t(user_id, "btn_quests"))],
+        [KeyboardButton(t(user_id, "btn_daily")),      KeyboardButton(t(user_id, "btn_info"))],
+        [KeyboardButton(t(user_id, "btn_other_commands"))],
     ]
     if user_id in ADMIN_USER_IDS:
         buttons.append([KeyboardButton(t(user_id, "btn_admin_panel"))])
@@ -160,13 +162,36 @@ async def cb_tutorial(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Команда /menu — всегда возвращает основное меню."""
+    """Команда /menu — всегда возвращает основное меню + баннер события дня."""
     user_id = update.effective_user.id
     if not await _db(user_exists, user_id):
         await update.message.reply_text(t(user_id, "not_registered"))
         return
+
+    # Баннер события дня и мирового босса
+    banner = ""
+    try:
+        from handlers.daily_bonus import get_today_event
+        from database import get_active_world_boss
+        event = get_today_event()
+        banner = f"\n{event['name']}\n_{event['desc']}_\n"
+        wb = get_active_world_boss()
+        if wb:
+            banner += f"\n⚠️ *Мировой босс сейчас активен!* Жми 🐉 Мировой босс"
+        else:
+            from handlers.world_bosses import _next_spawn_info
+            until, _, _, next_time = _next_spawn_info()
+            banner += f"\n🐉 Следующий босс через *{until}* ({next_time} UTC)"
+    except Exception:
+        pass
+
+    menu_text = t(user_id, "main_menu")
+    if banner:
+        menu_text = f"{menu_text}\n━━━━━━━━━━━━━━━━━━━━{banner}"
+
     await update.message.reply_text(
-        t(user_id, "main_menu"),
+        menu_text,
+        parse_mode="Markdown",
         reply_markup=main_menu_keyboard(user_id),
     )
 
@@ -197,6 +222,9 @@ _BUTTON_ROUTES: list[tuple[str, str, str]] = [
     ("btn_journal",      "handlers.player_journal",   "cmd_journal"),
     ("btn_horcruxes",    "handlers.horcruxes",        "cmd_horcruxes"),
     ("btn_triwizard",    "handlers.triwizard",        "cmd_triwizard"),
+    ("btn_duel",         "handlers.duel",             "cmd_duel"),
+    ("btn_daily",        "handlers.daily_bonus",      "cmd_daily"),
+    ("btn_info",         "handlers.info",             "cmd_info"),
     # Админ
     ("btn_admin_panel",        "handlers.admin", "cmd_admin"),
     ("btn_admin_stats",        "handlers.admin", "cmd_stats"),
