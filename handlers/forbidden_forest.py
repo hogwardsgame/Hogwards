@@ -188,10 +188,12 @@ def _forest_keyboard(events: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 def _event_keyboard(event: dict) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(opt, callback_data=f"ff_choice:{event['id']}:{i}")]
-        for i, opt in enumerate(event["options"])
-    ])
+    """Клавиатура вариантов — каждая кнопка на отдельной строке для читаемости."""
+    buttons = []
+    for i, opt in enumerate(event["options"]):
+        buttons.append([InlineKeyboardButton(opt, callback_data=f"ff_choice:{event['id']}:{i}")])
+    buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="ff_back")])
+    return InlineKeyboardMarkup(buttons)
 
 async def cmd_forest(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -256,6 +258,7 @@ async def cb_ff_event(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cb_ff_choice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
+    await query.answer()          # ← обязательно первым, иначе Telegram «завис»
     user_id  = query.from_user.id
     parts    = query.data.split(":")
     event_id = parts[1]
@@ -263,13 +266,16 @@ async def cb_ff_choice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     event = next((e for e in FOREST_EVENTS if e["id"] == event_id), None)
     if not event or choice >= len(event["outcomes"]):
-        await query.answer("❌ Ошибка.", show_alert=True)
+        await query.edit_message_text("❌ Ошибка: событие не найдено.")
         return
 
     used  = get_daily_limit(user_id, "forest")
     limit = DAILY_LIMITS.get("forest", 5)
     if used >= limit:
-        await query.answer("🌲 Лимит вылазок исчерпан!", show_alert=True)
+        await query.edit_message_text(
+            f"🌲 Лимит вылазок на сегодня исчерпан ({used}/{limit}).\n"
+            f"Возвращайся завтра!"
+        )
         return
 
     outcome = event["outcomes"][choice]
