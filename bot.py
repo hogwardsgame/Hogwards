@@ -44,6 +44,8 @@ from handlers.triwizard        import register_triwizard_handlers
 from handlers.daily_bonus      import register_daily_handlers
 from handlers.info             import register_info_handlers
 from handlers.tutorial         import register_tutorial_handlers
+from handlers.gringotts        import register_gringotts_handlers
+from handlers.forge            import register_forge_handlers
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -137,6 +139,8 @@ def main():
     register_daily_handlers(app)
     register_info_handlers(app)
     register_tutorial_handlers(app)
+    register_gringotts_handlers(app)
+    register_forge_handlers(app)
 
     logger.info("Hogwarts Bot запускается...")
     app.run_polling(drop_pending_updates=True)

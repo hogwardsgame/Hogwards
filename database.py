@@ -268,6 +268,30 @@ CREATE TABLE IF NOT EXISTS daily_limits (
     PRIMARY KEY (user_id, date)
 );
 
+CREATE TABLE IF NOT EXISTS weekly_stats (
+    user_id   BIGINT PRIMARY KEY REFERENCES users(user_id),
+    xp_week   INT DEFAULT 0,
+    gold_week INT DEFAULT 0,
+    kills_week INT DEFAULT 0,
+    wins_week  INT DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS active_potions (
+    user_id    BIGINT NOT NULL,
+    potion_id  TEXT NOT NULL,
+    effect     TEXT NOT NULL,
+    value      FLOAT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, potion_id)
+);
+
+CREATE TABLE IF NOT EXISTS gringotts (
+    user_id     BIGINT PRIMARY KEY REFERENCES users(user_id),
+    balance     INT DEFAULT 0,
+    last_interest TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS admin_log (
     id         SERIAL PRIMARY KEY,
     admin_id   BIGINT,
@@ -450,6 +474,7 @@ ALTER TABLE equipped_items ADD COLUMN IF NOT EXISTS bonus INT DEFAULT 0;
 
 -- Новые активности для ежедневных лимитов
 ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS forest       INT DEFAULT 0;
+ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS black_market INT DEFAULT 0;
 ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS black_market INT DEFAULT 0;
 
 -- В старых базах у одного игрока могло быть несколько строк одного предмета.
@@ -850,3 +875,81 @@ def load_conv_state(user_id: int) -> dict | None:
 def clear_conv_state(user_id: int):
     with get_conn() as conn:
         execute(conn, "DELETE FROM conversation_states WHERE user_id = %s", user_id)
+
+
+def add_weekly_xp(user_id: int, xp: int):
+    """Добавить XP в недельную статистику."""
+    try:
+        with get_conn() as conn:
+            execute(conn, """
+                INSERT INTO weekly_stats (user_id, xp_week)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE
+                SET xp_week = weekly_stats.xp_week + EXCLUDED.xp_week,
+                    updated_at = NOW()
+            """, user_id, xp)
+    except Exception:
+        pass
+
+
+def add_weekly_win(user_id: int):
+    try:
+        with get_conn() as conn:
+            execute(conn, """
+                INSERT INTO weekly_stats (user_id, wins_week)
+                VALUES (%s, 1)
+                ON CONFLICT (user_id) DO UPDATE
+                SET wins_week = weekly_stats.wins_week + 1, updated_at = NOW()
+            """, user_id)
+    except Exception:
+        pass
+
+
+def add_weekly_kill(user_id: int):
+    try:
+        with get_conn() as conn:
+            execute(conn, """
+                INSERT INTO weekly_stats (user_id, kills_week)
+                VALUES (%s, 1)
+                ON CONFLICT (user_id) DO UPDATE
+                SET kills_week = weekly_stats.kills_week + 1, updated_at = NOW()
+            """, user_id)
+    except Exception:
+        pass
+
+
+def get_active_potions(user_id: int) -> list:
+    """Получить активные зелья игрока."""
+    try:
+        with get_conn() as conn:
+            return fetchall(conn,
+                "SELECT * FROM active_potions WHERE user_id=%s AND expires_at > NOW()",
+                user_id)
+    except Exception:
+        return []
+
+
+def apply_potion(user_id: int, potion_id: str, effect: str, value: float, duration_minutes: int = 60):
+    """Активировать зелье на указанное время."""
+    try:
+        with get_conn() as conn:
+            execute(conn, """
+                INSERT INTO active_potions (user_id, potion_id, effect, value, expires_at)
+                VALUES (%s, %s, %s, %s, NOW() + INTERVAL '%s minutes')
+                ON CONFLICT (user_id, potion_id) DO UPDATE
+                SET value=EXCLUDED.value, expires_at=EXCLUDED.expires_at
+            """, user_id, potion_id, effect, value, duration_minutes)
+    except Exception:
+        pass
+
+
+def get_potion_bonus(user_id: int, effect: str) -> float:
+    """Получить суммарный бонус от активных зелий для эффекта."""
+    try:
+        with get_conn() as conn:
+            rows = fetchall(conn,
+                "SELECT value FROM active_potions WHERE user_id=%s AND effect=%s AND expires_at>NOW()",
+                user_id, effect)
+        return sum(r["value"] for r in rows) if rows else 0.0
+    except Exception:
+        return 0.0
