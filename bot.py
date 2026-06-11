@@ -41,6 +41,9 @@ from handlers.black_market     import register_black_market_handlers
 from handlers.player_journal   import register_journal_handlers
 from handlers.horcruxes        import register_horcrux_handlers
 from handlers.triwizard        import register_triwizard_handlers
+from handlers.daily_bonus      import register_daily_handlers
+from handlers.info             import register_info_handlers
+from handlers.tutorial         import register_tutorial_handlers
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -78,6 +81,14 @@ async def post_init(app):
         set_cached_lang(row["user_id"], row["lang"])
     logger.info(f"Кэш языков загружен для {len(rows)} пользователей.")
     setup_scheduler(bot=app.bot)
+
+    # Подключить уведомления к планировщику
+    try:
+        from handlers.notifications import setup_notification_jobs
+        from utils.scheduler import scheduler
+        setup_notification_jobs(scheduler, app.bot)
+    except Exception as e:
+        logger.warning("Notifications scheduler: %s", e)
 
 
 def main():
@@ -123,6 +134,9 @@ def main():
     register_journal_handlers(app)
     register_horcrux_handlers(app)
     register_triwizard_handlers(app)
+    register_daily_handlers(app)
+    register_info_handlers(app)
+    register_tutorial_handlers(app)
 
     logger.info("Hogwarts Bot запускается...")
     app.run_polling(drop_pending_updates=True)
