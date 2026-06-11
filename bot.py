@@ -33,6 +33,8 @@ from handlers.achievements    import register_achievements_handlers
 from handlers.titles          import register_titles_handlers
 from handlers.locations       import register_locations_handlers
 from handlers.potion_system   import register_potion_handlers
+from handlers.world_bosses    import register_world_boss_handlers
+from handlers.house_war       import register_house_war_handlers
 from handlers.forbidden_forest import register_forest_handlers
 from handlers.pets             import register_pets_handlers
 from handlers.black_market     import register_black_market_handlers
