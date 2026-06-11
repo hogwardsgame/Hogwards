@@ -1,10 +1,6 @@
 """
-Запретный лес — отдельная зона с уникальными механиками:
-• Исследование с событиями и битвами
-• Ночные бонусы (20:00–06:00 UTC)
-• Уникальные NPC: Арагог, кентавры, Хагрид
-• Сбор ингредиентов для зельеварения
-• Случайные находки
+Запретный лес — исследования, события, NPC.
+Ночной бонус 20:00–06:00 UTC.
 """
 import logging
 import random
@@ -17,11 +13,10 @@ from database import (
     get_conn, execute, fetchrow, fetchall,
 )
 from utils.i18n import t
-from config import XP_REWARDS, GOLD_REWARDS, HOUSE_POINTS_REWARDS, DAILY_LIMITS
+from config import DAILY_LIMITS
 
 logger = logging.getLogger(__name__)
 
-# ── Уникальные события леса ────────────────────────────────────────────────────
 FOREST_EVENTS = [
     {
         "id": "aragog_lair",
@@ -33,11 +28,11 @@ FOREST_EVENTS = [
         "min_level": 5,
         "options": ["⚔️ Вступить в бой", "🏃 Бежать", "🎵 Запеть (Рон бы не советовал)"],
         "outcomes": [
-            {"xp": 150, "gold": 80, "item": "boomslang_skin", "qty": 2,
-             "msg": "Ты победил отряд акромантулов! Нашёл линьку — ценный ингредиент для Оборотного зелья."},
-            {"xp": 20,  "gold": 0,
+            {"xp": 150, "gold": 80,  "item": "boomslang_skin",   "qty": 2,
+             "msg": "Ты победил отряд акромантулов! Нашёл кожу — ценный ингредиент для Оборотного зелья."},
+            {"xp": 20,  "gold": 0,   "item": None,               "qty": 0,
              "msg": "Ты успел сбежать. Позади слышен недовольный клёкот паучьих лап."},
-            {"xp": 0,   "gold": 0,
+            {"xp": 0,   "gold": 0,   "item": None,               "qty": 0,
              "msg": "Пауки остановились и уставились на тебя. Потом медленно ушли. Странно."},
         ],
     },
@@ -53,9 +48,9 @@ FOREST_EVENTS = [
         "outcomes": [
             {"xp": 60,  "gold": 0,  "item": "phoenix_feather", "qty": 1,
              "msg": "Кентавр видит в звёздах твою победу и дарит перо феникса — знак судьбы."},
-            {"xp": 80,  "gold": 50,
+            {"xp": 80,  "gold": 50, "item": None,              "qty": 0,
              "msg": "Кентавры приняли дары и открыли тебе тайную тропу с ингредиентами."},
-            {"xp": 30,  "gold": 0,
+            {"xp": 30,  "gold": 0,  "item": None,              "qty": 0,
              "msg": "Кентавры кивнули и скрылись в лесу. Уважение важно."},
         ],
     },
@@ -69,12 +64,12 @@ FOREST_EVENTS = [
         "min_level": 1,
         "options": ["🤲 Протянуть руку", "📸 Наблюдать издали", "🩸 Собрать кровь (тёмный путь)"],
         "outcomes": [
-            {"xp": 120, "gold": 0,   "item": "unicorn_hair", "qty": 1,
-             "msg": "Единорог доверяет тебе и оставляет волос из гривы — редкий ингредиент для палочек."},
-            {"xp": 50,  "gold": 30,
+            {"xp": 120, "gold": 0,   "item": "dragon_heartstring", "qty": 1,
+             "msg": "Единорог доверяет тебе и оставляет волос из гривы — редкий ингредиент."},
+            {"xp": 50,  "gold": 30,  "item": None,                 "qty": 0,
              "msg": "Ты наблюдал за единорогом. Это незабываемо. +30 золота за зарисовки для Хагрида."},
-            {"xp": 200, "gold": 100, "item": "unicorn_blood", "qty": 1, "dark": True,
-             "msg": "⚠️ Ты собрал кровь единорога. Проклятая жизнь теперь с тобой. Награда велика, но цена высока."},
+            {"xp": 200, "gold": 100, "item": "felix_felicis",       "qty": 1,
+             "msg": "⚠️ Тёмный путь принёс тебе редкое зелье удачи. Но цена высока."},
         ],
     },
     {
@@ -87,11 +82,11 @@ FOREST_EVENTS = [
         "min_level": 1,
         "options": ["☕ Зайти на чай", "📦 Помочь с животными", "📚 Спросить о лесе"],
         "outcomes": [
-            {"xp": 40,  "gold": 60,  "item": "lacewing_flies", "qty": 3,
-             "msg": "Хагрид угостил тебя чаем и дал немного крылатых жуков для урока зельеварения."},
-            {"xp": 100, "gold": 40,
+            {"xp": 40,  "gold": 60, "item": "lacewing_flies",    "qty": 3,
+             "msg": "Хагрид угостил тебя чаем и дал крылатых жуков для зельеварения."},
+            {"xp": 100, "gold": 40, "item": None,                "qty": 0,
              "msg": "Ты помог Хагриду покормить нарвала. Он растроган и дал золото."},
-            {"xp": 70,  "gold": 0,   "item": "flobberworm_mucus", "qty": 2,
+            {"xp": 70,  "gold": 0,  "item": "flobberworm_mucus", "qty": 2,
              "msg": "Хагрид рассказал о тайных тропах и дал слизь флаббервурма."},
         ],
     },
@@ -105,11 +100,11 @@ FOREST_EVENTS = [
         "min_level": 8,
         "options": ["⚔️ Атаковать первым", "🔮 Применить заклинание", "🕯️ Зажечь Люмос"],
         "outcomes": [
-            {"xp": 200, "gold": 120, "item": "dragon_blood", "qty": 1,
-             "msg": "Это был молодой дракон! Ты победил его и нашёл чешую — ценнейший ингредиент."},
-            {"xp": 150, "gold": 80,
-             "msg": "Заклинание ударило точно. Существо скрылось, оставив ценный трофей."},
-            {"xp": 80,  "gold": 40,
+            {"xp": 200, "gold": 120, "item": "dragon_blood",        "qty": 1,
+             "msg": "Это был молодой дракон! Ты победил его и нашёл кровь дракона."},
+            {"xp": 150, "gold": 80,  "item": "basilisk_fang",       "qty": 1,
+             "msg": "Заклинание ударило точно. Существо скрылось, оставив редкий трофей."},
+            {"xp": 80,  "gold": 40,  "item": None,                  "qty": 0,
              "msg": "Свет Люмос испугал существо. Оно убежало, но уронило мешок с золотом."},
         ],
     },
@@ -123,12 +118,30 @@ FOREST_EVENTS = [
         "min_level": 1,
         "options": ["🌱 Собрать всё", "🎯 Выбрать лучшее", "📝 Записать местонахождение"],
         "outcomes": [
-            {"xp": 60,  "gold": 0, "item": "mandrake_root", "qty": 2,
+            {"xp": 60, "gold": 0,  "item": "mandrake_root", "qty": 2,
              "msg": "Ты набрал корней мандрагоры. Осторожно — они кусаются!"},
-            {"xp": 80,  "gold": 0, "item": "bezoar", "qty": 1,
+            {"xp": 80, "gold": 0,  "item": "bezoar",        "qty": 1,
              "msg": "Ты нашёл безоар среди растений — редкая удача!"},
-            {"xp": 50,  "gold": 80,
+            {"xp": 50, "gold": 80, "item": None,            "qty": 0,
              "msg": "Координаты поляны стоят дорого. Апотекарь в Хогсмиде хорошо заплатил."},
+        ],
+    },
+    {
+        "id": "hidden_treasure",
+        "title": "💰 Тайный клад",
+        "desc": (
+            "Под старым дубом ты заметил необычный камень. "
+            "Под ним — заржавевшая шкатулка с магическими артефактами."
+        ),
+        "min_level": 3,
+        "options": ["🔓 Вскрыть заклинанием", "🪓 Открыть силой", "📖 Изучить надписи"],
+        "outcomes": [
+            {"xp": 100, "gold": 150, "item": "polyjuice_ready", "qty": 1,
+             "msg": "Заклинание сработало! Внутри — золото и готовое оборотное зелье."},
+            {"xp": 60,  "gold": 200, "item": None,              "qty": 0,
+             "msg": "Сила помогла! Шкатулка открылась. Внутри много золота."},
+            {"xp": 150, "gold": 50,  "item": "dark_arts_tome",  "qty": 1,
+             "msg": "Надписи указали на скрытый отдел — там оказалась запрещённая книга!"},
         ],
     },
     {
@@ -144,21 +157,21 @@ FOREST_EVENTS = [
         "outcomes": [
             {"xp": 250, "gold": 150, "item": "gillyweed", "qty": 2,
              "msg": "Огни привели к магическому источнику! Жабья трава здесь особенно сильна."},
-            {"xp": 80,  "gold": 50,
-             "msg": "Костёр отпугнул тёмных существ. Ночь прошла спокойно — и ты нашёл монеты у огня."},
-            {"xp": 30,  "gold": 0,
+            {"xp": 80,  "gold": 50,  "item": None,       "qty": 0,
+             "msg": "Костёр отпугнул тёмных существ. Ночь прошла спокойно."},
+            {"xp": 30,  "gold": 0,   "item": None,       "qty": 0,
              "msg": "Мудрое решение. Ночной лес не для новичков."},
         ],
     },
 ]
 
-NIGHT_BONUS = 1.5   # Ночью XP/золото ×1.5
+NIGHT_BONUS = 1.5
 
 def _is_night() -> bool:
     h = datetime.now(timezone.utc).hour
     return h >= 20 or h < 6
 
-def _get_available_events(user_level: int) -> list[dict]:
+def _get_available_events(user_level: int) -> list:
     now_is_night = _is_night()
     result = []
     for ev in FOREST_EVENTS:
@@ -167,9 +180,9 @@ def _get_available_events(user_level: int) -> list[dict]:
         if ev.get("min_level", 1) > user_level:
             continue
         result.append(ev)
-    return result or FOREST_EVENTS[:3]
+    return result if result else FOREST_EVENTS[:3]
 
-def _forest_keyboard(events: list[dict]) -> InlineKeyboardMarkup:
+def _forest_keyboard(events: list) -> InlineKeyboardMarkup:
     buttons = [[InlineKeyboardButton(e["title"], callback_data=f"ff_event:{e['id']}")] for e in events[:5]]
     buttons.append([InlineKeyboardButton("📊 Статистика леса", callback_data="ff_stats")])
     return InlineKeyboardMarkup(buttons)
@@ -186,13 +199,14 @@ async def cmd_forest(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(user_id, "not_registered"))
         return
 
-    used = get_daily_limit(user_id, "forest")
+    used  = get_daily_limit(user_id, "forest")
     limit = DAILY_LIMITS.get("forest", 5)
     if used >= limit:
         await update.message.reply_text(
-            f"🌲 Запретный лес\n\n"
+            f"🌲 *Запретный лес*\n\n"
             f"Ты слишком устал для дальнейших вылазок сегодня ({used}/{limit}).\n"
-            f"Возвращайся завтра!"
+            f"Возвращайся завтра!",
+            parse_mode="Markdown"
         )
         return
 
@@ -201,16 +215,17 @@ async def cmd_forest(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     night  = _is_night()
     night_str = "🌙 *Ночь — бонус ×1.5 к наградам!*\n\n" if night else ""
 
-    text = (
+    await update.message.reply_text(
         f"🌲 *Запретный лес*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{night_str}"
         f"Тёмный, опасный, полный тайн лес у стен Хогвартса.\n"
         f"Только смелые находят здесь сокровища.\n\n"
         f"Вылазок сегодня: {used}/{limit}\n\n"
-        f"Выбери событие:"
+        f"Выбери событие:",
+        parse_mode="Markdown",
+        reply_markup=_forest_keyboard(events)
     )
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=_forest_keyboard(events))
 
 async def cb_ff_event(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
@@ -230,13 +245,14 @@ async def cb_ff_event(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     night_note = "\n🌙 _Ночной бонус активен!_" if _is_night() else ""
-    text = (
+    await query.edit_message_text(
         f"{event['title']}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{event['desc']}{night_note}\n\n"
-        f"Что ты делаешь?"
+        f"Что ты делаешь?",
+        parse_mode="Markdown",
+        reply_markup=_event_keyboard(event)
     )
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=_event_keyboard(event))
 
 async def cb_ff_choice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
@@ -260,55 +276,72 @@ async def cb_ff_choice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     night   = _is_night()
     mult    = NIGHT_BONUS if night else 1.0
 
-    xp   = int(outcome.get("xp", 0) * mult)
+    xp   = int(outcome.get("xp",   0) * mult)
     gold = int(outcome.get("gold", 0) * mult)
-    item = outcome.get("item")
-    qty  = outcome.get("qty", 1)
-    msg  = outcome.get("msg", "Хорошая работа!")
+    item = outcome.get("item")   # может быть None
+    qty  = outcome.get("qty",  1)
+    msg  = outcome.get("msg",  "Хорошая работа!")
 
-    if xp:
-        add_xp(user_id, xp)
-    if gold:
-        add_gold(user_id, gold)
-    if item:
-        add_item_to_inventory(user_id, item, qty)
+    # Начисляем награды — каждый шаг в try/except чтобы одна ошибка не ломала всё
+    try:
+        if xp:   add_xp(user_id, xp)
+    except Exception as e:
+        logger.error("forest add_xp: %s", e)
 
-    user = get_user(user_id)
-    if user.get("house"):
-        try:
+    try:
+        if gold: add_gold(user_id, gold)
+    except Exception as e:
+        logger.error("forest add_gold: %s", e)
+
+    try:
+        if item and qty > 0:
+            add_item_to_inventory(user_id, item, qty)
+    except Exception as e:
+        logger.error("forest add_item %s: %s", item, e)
+        item = None  # не показываем предмет в наградах если не удалось добавить
+
+    try:
+        user = get_user(user_id)
+        if user and user.get("house") and xp > 0:
             add_house_points(user_id, user["house"], max(1, xp // 10), "forest")
-        except Exception:
-            pass
+    except Exception as e:
+        logger.error("forest house_points: %s", e)
 
-    increment_daily(user_id, "forest")
+    try:
+        increment_daily(user_id, "forest")
+    except Exception as e:
+        logger.error("forest increment_daily: %s", e)
 
-    # Запись в историю
+    # Журнал
     try:
         with get_conn() as conn:
             execute(conn, """
-                INSERT INTO player_journal (user_id, event_type, title, description, xp_gained, gold_gained, item_gained)
+                INSERT INTO player_journal
+                    (user_id, event_type, title, description, xp_gained, gold_gained, item_gained)
                 VALUES (%s, 'forest', %s, %s, %s, %s, %s)
             """, user_id, event["title"], msg, xp, gold, item or "")
     except Exception:
         pass
 
+    # Обновляем счётчик после increment
+    try:
+        used_now  = get_daily_limit(user_id, "forest")
+        remaining = limit - used_now
+    except Exception:
+        remaining = 0
+
     rewards = []
     if xp:   rewards.append(f"+{xp} XP")
     if gold: rewards.append(f"+{gold} 💰")
-    if item: rewards.append(f"+{qty}x {item}")
+    if item and qty > 0: rewards.append(f"+{qty}× {item}")
     reward_str = "  •  ".join(rewards) if rewards else "Без наград"
     night_str  = "\n🌙 _Ночной бонус ×1.5 применён_" if night else ""
 
-    used_now = get_daily_limit(user_id, "forest")
-    remaining = limit - used_now
-
     markup = None
     if remaining > 0:
-        user_fresh = get_user(user_id)
-        events     = _get_available_events(user_fresh["level"])
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🌲 Ещё одна вылазка", callback_data="ff_back")],
-        ])
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🌲 Ещё одна вылазка", callback_data="ff_back")
+        ]])
 
     await query.edit_message_text(
         f"🌲 *{event['title']}*\n"
@@ -347,20 +380,27 @@ async def cb_ff_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
 
+    cnt, xp_sum, gold_sum = 0, 0, 0
     try:
         with get_conn() as conn:
-            total = fetchrow(conn,
-                "SELECT COUNT(*) as cnt, COALESCE(SUM(xp_gained),0) as xp, COALESCE(SUM(gold_gained),0) as gold "
-                "FROM player_journal WHERE user_id=%s AND event_type='forest'", user_id)
+            row = fetchrow(conn,
+                "SELECT COUNT(*) as cnt, COALESCE(SUM(xp_gained),0) as xp, "
+                "COALESCE(SUM(gold_gained),0) as gold "
+                "FROM player_journal WHERE user_id=%s AND event_type='forest'",
+                user_id)
+        if row:
+            cnt      = row["cnt"]
+            xp_sum   = row["xp"]
+            gold_sum = row["gold"]
     except Exception:
-        total = {"cnt": 0, "xp": 0, "gold": 0}
+        pass
 
     await query.edit_message_text(
         f"📊 *Статистика — Запретный лес*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🌲 Вылазок всего: {total['cnt'] if total else 0}\n"
-        f"✨ Опыта получено: {total['xp'] if total else 0}\n"
-        f"💰 Золота найдено: {total['gold'] if total else 0}",
+        f"🌲 Вылазок всего: {cnt}\n"
+        f"✨ Опыта получено: {xp_sum}\n"
+        f"💰 Золота найдено: {gold_sum}",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("◀️ Назад в лес", callback_data="ff_back")
