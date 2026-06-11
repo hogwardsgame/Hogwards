@@ -296,6 +296,16 @@ async def _complete_quest(query, user_id: int, quest: dict):
         f"🏆 *Квест завершён: {name}*\n+{xp} XP  +{gold} 💰  +3 очка факультету",
         parse_mode="Markdown",
     )
+    try:
+        from handlers.daily_bonus import update_task_progress
+        update_task_progress(user_id, "quests_done", 1)
+    except Exception:
+        pass
+    try:
+        from database import add_weekly_xp
+        add_weekly_xp(user_id, xp)
+    except Exception:
+        pass
 
 
 

@@ -299,11 +299,32 @@ async def cb_squad_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     with get_conn() as conn:
         execute(conn, "UPDATE users SET squad_id = %s WHERE user_id = %s", squad_id, new_uid)
 
-    await query.edit_message_text(f"✅ {new_user['wizard_name']} принят в отряд!")
+    members_now = get_squad_members(squad_id)
+    await query.edit_message_text(
+        f"✅ {new_user['wizard_name']} принят в отряд!\n"
+        f"Состав отряда: {len(members_now)}/{SQUAD_MAX_MEMBERS}"
+    )
     try:
-        await ctx.bot.send_message(new_uid, f"✅ Тебя приняли в отряд «{squad['name']}»!")
+        await ctx.bot.send_message(
+            new_uid,
+            f"✅ Тебя приняли в отряд *«{squad['name']}»*!\n\n"
+            f"👥 Участников: {len(members_now)}/{SQUAD_MAX_MEMBERS}\n"
+            f"💡 Отряд даёт +5% к XP в подземельях и +3 очка факультета за победы.",
+            parse_mode="Markdown"
+        )
     except Exception:
         pass
+    # Уведомить всех членов отряда
+    for member in members_now:
+        if member["user_id"] in (leader_id, new_uid):
+            continue
+        try:
+            await ctx.bot.send_message(
+                member["user_id"],
+                f"👤 {new_user['wizard_name']} вступил в ваш отряд!"
+            )
+        except Exception:
+            pass
 
 
 async def cb_squad_decline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

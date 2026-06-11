@@ -61,6 +61,7 @@ def other_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
         [KeyboardButton(t(user_id, "btn_explore")),      KeyboardButton(t(user_id, "btn_forest"))],
         [KeyboardButton(t(user_id, "btn_pets")),         KeyboardButton(t(user_id, "btn_blackmarket"))],
         [KeyboardButton(t(user_id, "btn_horcruxes")),    KeyboardButton(t(user_id, "btn_triwizard"))],
+        [KeyboardButton(t(user_id, "btn_gringotts")),    KeyboardButton(t(user_id, "btn_forge"))],
         [KeyboardButton(t(user_id, "btn_journal")),      KeyboardButton(t(user_id, "btn_back_main_menu"))],
     ]
     if user_id in ADMIN_USER_IDS:
@@ -225,6 +226,8 @@ _BUTTON_ROUTES: list[tuple[str, str, str]] = [
     ("btn_duel",         "handlers.duel",             "cmd_duel"),
     ("btn_daily",        "handlers.daily_bonus",      "cmd_daily"),
     ("btn_info",         "handlers.info",             "cmd_info"),
+    ("btn_gringotts",    "handlers.gringotts",        "cmd_gringotts"),
+    ("btn_forge",        "handlers.forge",            "cmd_forge"),
     # Админ
     ("btn_admin_panel",        "handlers.admin", "cmd_admin"),
     ("btn_admin_stats",        "handlers.admin", "cmd_stats"),

@@ -480,6 +480,16 @@ async def cb_brew_collect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         + "\n\nЗелья добавлены в инвентарь.",
         parse_mode="Markdown"
     )
+    try:
+        from handlers.daily_bonus import update_task_progress
+        update_task_progress(user_id, "potions_brewed", len(collected))
+    except Exception:
+        pass
+    try:
+        from handlers.achievements import check_achievements
+        await check_achievements(user_id, ctx)
+    except Exception:
+        pass
 
 
 async def cb_brew_ingredients(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

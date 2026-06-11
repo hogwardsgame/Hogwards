@@ -151,9 +151,28 @@ async def cb_pve_enter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "log":             [],
         "total_dmg_dealt": 0,
         "total_dmg_taken": 0,
-        "prev_spell":      None,       # для системы комбо
+        "prev_spell":      None,
         "phase_name":      phase_name,
     }
+
+    # Применяем бонусы активных зелий
+    try:
+        from database import get_potion_bonus
+        atk_bonus = get_potion_bonus(user_id, "attack_mult")
+        def_bonus = get_potion_bonus(user_id, "defense_mult")
+        if atk_bonus:
+            session["user"] = dict(user)
+            session["user"]["attack"] = int(user["attack"] * (1 + atk_bonus))
+            session["log"].append(f"⚡ Зелье силы активно: +{int(atk_bonus*100)}% к атаке!")
+        if def_bonus:
+            session["user"]["defense"] = int(user["defense"] * (1 + def_bonus))
+            session["log"].append(f"🛡️ Зелье щита активно: +{int(def_bonus*100)}% к защите!")
+        luck_bonus = get_potion_bonus(user_id, "luck_mult")
+        if luck_bonus:
+            session["user"]["luck"] = int(user["luck"] * (1 + luck_bonus))
+            session["log"].append(f"🍀 Феликс Фелицис активен: удача усилена!")
+    except Exception:
+        pass
 
     mname = monster["name"].get("ru", monster["id"])
     if is_boss:
@@ -411,6 +430,26 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
         f"{level_text}"
     )
     await query.edit_message_text(text, parse_mode="Markdown")
+
+    # Обновить достижения и задания дня
+    try:
+        from handlers.achievements import check_achievements
+        await check_achievements(user_id, ctx)
+    except Exception:
+        pass
+    try:
+        from handlers.daily_bonus import update_task_progress
+        update_task_progress(user_id, "pve_kills", 1)
+        if monster.get("is_boss"):
+            update_task_progress(user_id, "boss_kills", 1)
+    except Exception:
+        pass
+    try:
+        from database import add_weekly_xp, add_weekly_kill
+        add_weekly_xp(user_id, xp_actual)
+        add_weekly_kill(user_id)
+    except Exception:
+        pass
 
 
 async def _pve_lose(query, user_id: int, session: dict):

@@ -456,6 +456,21 @@ async def cb_inv_use(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         from database import add_gold
         add_gold(user_id, int(value))
         msg = f"💰 +{int(value)} золота"
+    elif effect in ("attack_mult", "defense_mult", "luck_mult", "speed_mult"):
+        # Боевые зелья — активируются на 60 минут
+        duration = item.get("duration", 3600) // 60
+        try:
+            from database import apply_potion
+            apply_potion(user_id, item.get("id", effect), effect, float(value), duration)
+        except Exception:
+            pass
+        effect_names = {
+            "attack_mult":  f"⚔️ +{int(float(value)*100)}% к атаке",
+            "defense_mult": f"🛡️ +{int(float(value)*100)}% к защите",
+            "luck_mult":    f"🍀 +{int(float(value)*100)}% к удаче",
+            "speed_mult":   f"⚡ +{int(float(value)*100)}% к скорости",
+        }
+        msg = f"{effect_names.get(effect, effect)} на {duration} мин"
     else:
         msg = f"✨ Эффект: {effect or 'применён'}"
 

@@ -132,6 +132,31 @@ async def _end_duel(duel_id: int, winner_id: int | None, ctx: ContextTypes.DEFAU
                 await ctx.bot.send_message(opponent["user_id"], result_text, parse_mode="Markdown")
             except Exception:
                 pass
+
+        # Достижения, задания дня, недельная статистика
+        try:
+            from handlers.achievements import check_achievements
+            await check_achievements(winner_id, ctx)
+            if loser_id:
+                await check_achievements(loser_id, ctx)
+        except Exception:
+            pass
+        try:
+            from handlers.daily_bonus import update_task_progress
+            update_task_progress(winner_id, "pvp_total", 1)
+            update_task_progress(winner_id, "pvp_wins", 1)
+            if loser_id:
+                update_task_progress(loser_id, "pvp_total", 1)
+        except Exception:
+            pass
+        try:
+            from database import add_weekly_xp, add_weekly_win
+            add_weekly_xp(winner_id, xp_win)
+            add_weekly_win(winner_id)
+            if loser_id:
+                add_weekly_xp(loser_id, xp_lose)
+        except Exception:
+            pass
     else:
         with get_conn() as conn:
             execute(conn, "UPDATE duels SET status = 'draw', ended_at = NOW() WHERE id = %s", duel_id)

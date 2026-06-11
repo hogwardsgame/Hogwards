@@ -556,6 +556,22 @@ async def cb_lesson_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"{streak_msg}"
             f"{rare_reward}"
         )
+        # Достижения и задания дня
+        try:
+            from handlers.achievements import check_achievements
+            await check_achievements(user_id, ctx)
+        except Exception:
+            pass
+        try:
+            from handlers.daily_bonus import update_task_progress
+            update_task_progress(user_id, "lessons_correct", 1)
+        except Exception:
+            pass
+        try:
+            from database import add_weekly_xp
+            add_weekly_xp(user_id, xp_gain)
+        except Exception:
+            pass
     else:
         session["streak"] = 0
         xp_gain = XP_REWARDS.get("lesson_wrong", 5)
