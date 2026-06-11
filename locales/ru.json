@@ -110,5 +110,7 @@
   "btn_blackmarket": "🕯️ Чёрный рынок",
   "btn_journal": "📖 История",
   "btn_horcruxes": "💎 Крестражи",
-  "btn_triwizard": "🏆 Турнир Трёх"
+  "btn_triwizard": "🏆 Турнир Трёх",
+  "btn_daily": "🎁 Бонус дня",
+  "btn_info": "ℹ️ Инфо"
 }

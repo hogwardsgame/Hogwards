@@ -18,7 +18,7 @@
   "tutorial_5": "🏆 Step 5/5: House Cup\n\nEvery victory earns points for your house!\n\n✅ Tutorial complete! Good luck, wizard!",
   "btn_next": "Next ➡️",
   "btn_profile": "👤 Profile",
-  "btn_duel": "⚔️ Duel",
+  "btn_duel": "⚔️ Duell",
   "btn_dungeon": "🏰 Dungeons",
   "btn_shop": "🏪 Shop",
   "btn_rating": "🏆 Rating",
@@ -110,5 +110,7 @@
   "btn_blackmarket": "🕯️ Schwarzmarkt",
   "btn_journal": "📖 Meine Geschichte",
   "btn_horcruxes": "💎 Horkruxe",
-  "btn_triwizard": "🏆 Trimagus"
+  "btn_triwizard": "🏆 Trimagus",
+  "btn_daily": "🎁 Tagesbonus",
+  "btn_info": "ℹ️ Info"
 }
