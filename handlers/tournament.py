@@ -106,7 +106,7 @@ async def cmd_tournament(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "🏆 *Турнир волшебников*\n\n"
             "Сейчас нет активного турнира.\n"
             "Следующий начнётся автоматически.\n\n"
-            "💡 Администратор может запустить турнир командой /admin\_tournament",
+            "💡 Администратор может запустить турнир командой /admin_tournament",
             parse_mode="Markdown"
         )
 
