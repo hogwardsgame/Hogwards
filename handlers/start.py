@@ -4,6 +4,7 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboard
 from telegram.ext import (
     ContextTypes, CommandHandler, MessageHandler,
     CallbackQueryHandler, ConversationHandler, filters,
+    ApplicationHandlerStop,
 )
 from database import user_exists, wizard_name_taken, create_user, get_house_counts, set_user_lang, get_user
 from utils.i18n import t, t_lang, set_cached_lang
@@ -213,6 +214,8 @@ async def handle_main_menu_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYP
     """
     Центральный роутер кнопок Reply-клавиатуры.
     Регистрируется в group=0, обрабатывает все текстовые кнопки меню.
+    После обработки вызывает ApplicationHandlerStop — блокирует любые
+    сторонние обработчики (рекламные инжекторы и прочее) от выполнения.
     """
     if not update.message or not update.message.text:
         return
@@ -224,12 +227,12 @@ async def handle_main_menu_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYP
     if text == t(user_id, "btn_other_commands"):
         if not await _db(user_exists, user_id):
             await update.message.reply_text(t(user_id, "not_registered"))
-            return
-        await update.message.reply_text(
-            t(user_id, "other_menu"),
-            reply_markup=other_menu_keyboard(user_id),
-        )
-        return
+        else:
+            await update.message.reply_text(
+                t(user_id, "other_menu"),
+                reply_markup=other_menu_keyboard(user_id),
+            )
+        raise ApplicationHandlerStop
 
     # ── Кнопка «⬅️ Основное меню» → возврат ─────────────────────────────────
     back_texts = {
@@ -241,12 +244,12 @@ async def handle_main_menu_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYP
     if text in back_texts:
         if not await _db(user_exists, user_id):
             await update.message.reply_text(t(user_id, "not_registered"))
-            return
-        await update.message.reply_text(
-            t(user_id, "main_menu"),
-            reply_markup=main_menu_keyboard(user_id),
-        )
-        return
+        else:
+            await update.message.reply_text(
+                t(user_id, "main_menu"),
+                reply_markup=main_menu_keyboard(user_id),
+            )
+        raise ApplicationHandlerStop
 
     # ── Остальные кнопки ─────────────────────────────────────────────────────
     for btn_key, module, func_name in _BUTTON_ROUTES:
@@ -254,10 +257,12 @@ async def handle_main_menu_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYP
         if text == btn_text:
             # Админ-кнопки — только для админов
             if btn_key.startswith("btn_admin") and user_id not in ADMIN_USER_IDS:
-                return
+                raise ApplicationHandlerStop
             try:
                 func = _get_func(module, func_name)
                 await func(update, ctx)
+            except ApplicationHandlerStop:
+                raise
             except Exception as _err:
                 import traceback
                 tb = traceback.format_exc()
@@ -266,7 +271,7 @@ async def handle_main_menu_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYP
                     f"⚠️ Ошибка в {func_name}:\n<code>{str(_err)[:300]}</code>",
                     parse_mode="HTML"
                 )
-            return
+            raise ApplicationHandlerStop
 
 
 def get_conversation_handler() -> ConversationHandler:
