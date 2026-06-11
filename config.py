@@ -113,6 +113,8 @@ DAILY_LIMITS = {
     "world_boss":   1,
     "room_req":     1,
     "hogsmeade":    1,
+    "forest":       5,
+    "black_market": 3,
 }
 
 # ── ДУЭЛИ ──────────────────────────────────────────────────────────────
