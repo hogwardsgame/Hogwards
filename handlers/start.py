@@ -56,7 +56,10 @@ def other_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
         [KeyboardButton(t(user_id, "btn_room")),         KeyboardButton(t(user_id, "btn_potions"))],
         [KeyboardButton(t(user_id, "btn_squad")),        KeyboardButton(t(user_id, "btn_trade"))],
         [KeyboardButton(t(user_id, "btn_achievements")), KeyboardButton(t(user_id, "btn_titles"))],
-        [KeyboardButton(t(user_id, "btn_explore")),      KeyboardButton(t(user_id, "btn_back_main_menu"))],
+        [KeyboardButton(t(user_id, "btn_explore")),      KeyboardButton(t(user_id, "btn_forest"))],
+        [KeyboardButton(t(user_id, "btn_pets")),         KeyboardButton(t(user_id, "btn_blackmarket"))],
+        [KeyboardButton(t(user_id, "btn_horcruxes")),    KeyboardButton(t(user_id, "btn_triwizard"))],
+        [KeyboardButton(t(user_id, "btn_journal")),      KeyboardButton(t(user_id, "btn_back_main_menu"))],
     ]
     if user_id in ADMIN_USER_IDS:
         buttons.append([
@@ -187,6 +190,13 @@ _BUTTON_ROUTES: list[tuple[str, str, str]] = [
     ("btn_achievements", "handlers.achievements",     "cmd_achievements"),
     ("btn_titles",       "handlers.titles",           "cmd_titles"),
     ("btn_explore",      "handlers.locations",        "cmd_explore"),
+    # Новые системы
+    ("btn_forest",       "handlers.forbidden_forest", "cmd_forest"),
+    ("btn_pets",         "handlers.pets",             "cmd_pets"),
+    ("btn_blackmarket",  "handlers.black_market",     "cmd_black_market"),
+    ("btn_journal",      "handlers.player_journal",   "cmd_journal"),
+    ("btn_horcruxes",    "handlers.horcruxes",        "cmd_horcruxes"),
+    ("btn_triwizard",    "handlers.triwizard",        "cmd_triwizard"),
     # Админ
     ("btn_admin_panel",        "handlers.admin", "cmd_admin"),
     ("btn_admin_stats",        "handlers.admin", "cmd_stats"),

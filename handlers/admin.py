@@ -482,14 +482,46 @@ async def cmd_list_spells(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 @admin_only
 async def cmd_list_bosses(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from handlers.world_bosses import WORLD_BOSSES
-    regular_bosses = [bid for bid, m in MONSTERS.items() if m.get("is_boss")]
-    wb_list = list(WORLD_BOSSES.keys())
-    # Boss IDs содержат _ поэтому не используем Markdown
-    lines = [
-        f"👑 Обычные боссы: {', '.join(regular_bosses)}",
-        f"\n🌍 Мировые боссы: {', '.join(wb_list)}",
-    ]
-    await update.message.reply_text("\n".join(lines))
+
+    # ── Мировые боссы — полные карточки ──────────────────────────────────────
+    wb_lines = ["🌍 МИРОВЫЕ БОССЫ\n"]
+    for bid, b in WORLD_BOSSES.items():
+        name_ru = b["names"]["ru"]
+        phases  = " → ".join(p["names"]["ru"] for p in b["phases"])
+        drop    = b.get("drop_table", {})
+        top1    = drop.get("top1", {})
+        wb_lines.append(
+            f"{b['emoji']} {name_ru}  (ID: {bid})\n"
+            f"   ❤️ HP: {b['hp']:,}  ⚔️ Атак: {b['attack']}  🛡️ Защита: {b['defense']}\n"
+            f"   💥 Слабость: {b['weakness']}\n"
+            f"   🔄 Фазы: {phases}\n"
+            f"   📈 Пассив. урон: {b['passive_dmg'][0]}–{b['passive_dmg'][1]}\n"
+            f"   🌟 Уник. дроп: {b.get('unique_drop','—')} ({int(b.get('unique_drop_chance',0)*100)}%)\n"
+            f"   🥇 Топ-1 награда: {top1.get('xp',0)} XP + {top1.get('gold',0)} 💰"
+            + (f" + титул «{top1['title']}»" if top1.get('title') else "") + "\n"
+        )
+
+    # ── Обычные боссы — таблица ───────────────────────────────────────────────
+    reg_lines = ["\n👑 ОБЫЧНЫЕ БОССЫ\n"]
+    for bid, m in MONSTERS.items():
+        if not m.get("is_boss"):
+            continue
+        name = m.get("name", bid)
+        hp   = m.get("hp", "?")
+        atk  = m.get("attack", "?")
+        dfn  = m.get("defense", "?")
+        reg_lines.append(
+            f"• {name}  (ID: {bid})\n"
+            f"  ❤️ {hp}  ⚔️ {atk}  🛡️ {dfn}\n"
+        )
+
+    text = "\n".join(wb_lines) + "\n".join(reg_lines)
+    # Telegram limit 4096 chars — split if needed
+    if len(text) > 4000:
+        await update.message.reply_text("\n".join(wb_lines)[:4000])
+        await update.message.reply_text("\n".join(reg_lines)[:4000])
+    else:
+        await update.message.reply_text(text)
 
 
 def register_admin_handlers(app):
