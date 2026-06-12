@@ -293,6 +293,11 @@ CREATE TABLE IF NOT EXISTS gringotts (
     last_interest TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS bot_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS admin_log (
     id         SERIAL PRIMARY KEY,
     admin_id   BIGINT,
@@ -1001,3 +1006,25 @@ def get_inactive_users(hours: int = 2, limit: int = 500) -> list:
             """, exclude, str(hours), limit)
     except Exception:
         return []
+
+
+def get_setting(key: str, default: str = None) -> str | None:
+    """Получить значение настройки бота."""
+    try:
+        with get_conn() as conn:
+            row = fetchrow(conn, "SELECT value FROM bot_settings WHERE key = %s", key)
+        return row["value"] if row else default
+    except Exception:
+        return default
+
+
+def set_setting(key: str, value: str):
+    """Сохранить настройку бота (переживает перезапуск)."""
+    try:
+        with get_conn() as conn:
+            execute(conn, """
+                INSERT INTO bot_settings (key, value) VALUES (%s, %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            """, key, value)
+    except Exception as e:
+        logger.warning("set_setting %s: %s", key, e)
