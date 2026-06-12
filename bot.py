@@ -47,6 +47,7 @@ from handlers.tutorial         import register_tutorial_handlers
 from handlers.gringotts        import register_gringotts_handlers
 from handlers.forge            import register_forge_handlers
 from handlers.navigation       import register_navigation_handlers
+from handlers.ambush           import register_ambush_handlers
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -90,6 +91,8 @@ async def post_init(app):
         from handlers.notifications import setup_notification_jobs
         from utils.scheduler import scheduler
         setup_notification_jobs(scheduler, app.bot)
+        from handlers.ambush import setup_ambush_jobs
+        setup_ambush_jobs(scheduler, app.bot)
     except Exception as e:
         logger.warning("Notifications scheduler: %s", e)
 
@@ -143,6 +146,23 @@ def main():
     register_gringotts_handlers(app)
     register_forge_handlers(app)
     register_navigation_handlers(app)
+    register_ambush_handlers(app)
+
+    # ── Глобальный трекер активности ─────────────────────────────────────────
+    # Срабатывает на ЛЮБОЕ обновление от игрока (команды, callback, текст),
+    # обновляет last_active. Группа 99 — последняя, ничего не блокирует.
+    from telegram.ext import TypeHandler
+    from telegram import Update as _Upd
+
+    async def _track_activity(update, ctx):
+        try:
+            if update.effective_user:
+                from database import touch_user_activity
+                touch_user_activity(update.effective_user.id)
+        except Exception:
+            pass
+
+    app.add_handler(TypeHandler(_Upd, _track_activity), group=99)
 
     logger.info("Hogwarts Bot запускается...")
     app.run_polling(drop_pending_updates=True)

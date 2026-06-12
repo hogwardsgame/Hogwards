@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS users (
     wand_length   INT  DEFAULT NULL,
     wand_flex     TEXT DEFAULT NULL,
     squad_id      INT  DEFAULT NULL,
+    last_active   TIMESTAMPTZ DEFAULT NOW(),
     created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -475,7 +476,7 @@ ALTER TABLE equipped_items ADD COLUMN IF NOT EXISTS bonus INT DEFAULT 0;
 -- Новые активности для ежедневных лимитов
 ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS forest       INT DEFAULT 0;
 ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS black_market INT DEFAULT 0;
-ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS black_market INT DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active TIMESTAMPTZ DEFAULT NOW();
 
 -- В старых базах у одного игрока могло быть несколько строк одного предмета.
 -- Перед уникальным индексом складываем количество в одну строку.
@@ -971,3 +972,32 @@ def get_potion_bonus(user_id: int, effect: str) -> float:
         return sum(r["value"] for r in rows) if rows else 0.0
     except Exception:
         return 0.0
+
+
+def touch_user_activity(user_id: int):
+    """Обновить время последней активности игрока. Вызывать при любом действии."""
+    try:
+        with get_conn() as conn:
+            execute(conn, "UPDATE users SET last_active = NOW() WHERE user_id = %s", user_id)
+    except Exception:
+        pass
+
+
+def get_inactive_users(hours: int = 2, limit: int = 500) -> list:
+    """Игроки, не активные больше N часов (для случайных атак)."""
+    from config import ADMIN_IDS
+    exclude = list(ADMIN_IDS) if ADMIN_IDS else [0]
+    try:
+        with get_conn() as conn:
+            return fetchall(conn, """
+                SELECT user_id, wizard_name, house, level, lang,
+                       attack, defense, max_hp, luck
+                FROM users
+                WHERE COALESCE(is_banned, FALSE) = FALSE
+                  AND user_id != ALL(%s)
+                  AND last_active < NOW() - (%s || ' hours')::interval
+                ORDER BY last_active ASC
+                LIMIT %s
+            """, exclude, str(hours), limit)
+    except Exception:
+        return []
