@@ -62,7 +62,7 @@ async def notify_potion_ready(bot):
         with get_conn() as conn:
             rows = fetchall(conn, """
                 SELECT bq.user_id, bq.recipe_id, bq.ready_at, bq.notified
-                FROM brew_queue bq
+                FROM brewing_queue bq
                 WHERE bq.ready_at <= NOW()
                   AND (bq.notified = FALSE OR bq.notified IS NULL)
                   AND bq.collected = FALSE
@@ -90,7 +90,7 @@ async def notify_potion_ready(bot):
             )
             with get_conn() as conn:
                 execute(conn,
-                    "UPDATE brew_queue SET notified=TRUE WHERE user_id=%s AND recipe_id=%s AND ready_at=%s",
+                    "UPDATE brewing_queue SET notified=TRUE WHERE user_id=%s AND recipe_id=%s AND ready_at=%s",
                     uid, recipe_id, row["ready_at"])
         except Exception as e:
             logger.warning("potion notify uid=%s: %s", uid, e)

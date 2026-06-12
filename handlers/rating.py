@@ -168,5 +168,4 @@ async def show_house_cup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 def register_rating_handlers(app):
     app.add_handler(CommandHandler("rating", show_rating))
-    app.add_handler(CommandHandler("housecup", show_house_cup))
     app.add_handler(CallbackQueryHandler(cb_rating_tab, pattern=r"^rating_tab:"))
