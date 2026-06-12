@@ -48,6 +48,7 @@ from handlers.gringotts        import register_gringotts_handlers
 from handlers.forge            import register_forge_handlers
 from handlers.navigation       import register_navigation_handlers
 from handlers.ambush           import register_ambush_handlers
+from handlers.collections     import register_collections_handlers
 from handlers.admin_panel      import register_admin_panel_handlers
 
 logging.basicConfig(
@@ -148,6 +149,7 @@ def main():
     register_forge_handlers(app)
     register_navigation_handlers(app)
     register_ambush_handlers(app)
+    register_collections_handlers(app)
     register_admin_panel_handlers(app)
 
     # ── Глобальный трекер активности ─────────────────────────────────────────

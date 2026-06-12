@@ -1028,3 +1028,50 @@ def set_setting(key: str, value: str):
             """, key, value)
     except Exception as e:
         logger.warning("set_setting %s: %s", key, e)
+
+
+def reset_player(user_id: int):
+    """Полностью обнулить игрока — удалить все данные.
+    После этого игрок при /start проходит регистрацию заново, как новый.
+    """
+    # Все таблицы, где есть данные игрока (кроме служебных, что создаются на лету)
+    tables = [
+        "user_stats", "user_spells", "inventory", "equipped_items",
+        "lesson_attendance", "user_quests", "house_points_log",
+        "auction_bids", "daily_limits", "weekly_stats", "active_potions",
+        "gringotts", "conversation_states", "achievements", "user_titles",
+        "tournament_participants", "trade_log", "user_recipes", "brewing_queue",
+        "world_boss_damage", "location_progress", "season_ratings",
+    ]
+    # Таблицы, создаваемые модулями на лету (могут отсутствовать)
+    optional_tables = [
+        "login_streaks", "daily_tasks", "user_pets", "bm_purchases",
+        "horcrux_contributors", "ambushes", "collection_claims", "gringotts_log",
+    ]
+    with get_conn() as conn:
+        for tbl in tables:
+            try:
+                execute(conn, f"DELETE FROM {tbl} WHERE user_id = %s", user_id)
+            except Exception as e:
+                logger.warning("reset_player %s: %s", tbl, e)
+        for tbl in optional_tables:
+            try:
+                execute(conn, f"DELETE FROM {tbl} WHERE user_id = %s", user_id)
+            except Exception:
+                pass  # таблицы может не быть — это нормально
+        # Чистим лоты на аукционе, выставленные игроком
+        try:
+            execute(conn, "DELETE FROM auction_lots WHERE user_id = %s", user_id)
+        except Exception:
+            pass
+        # Убираем из отряда
+        try:
+            execute(conn, "UPDATE users SET squad_id = NULL WHERE squad_id IN (SELECT id FROM squads WHERE leader_id = %s)", user_id)
+            execute(conn, "DELETE FROM squads WHERE leader_id = %s", user_id)
+        except Exception:
+            pass
+        # Наконец удаляем самого игрока — при /start он зарегистрируется заново
+        try:
+            execute(conn, "DELETE FROM users WHERE user_id = %s", user_id)
+        except Exception as e:
+            logger.warning("reset_player users: %s", e)
