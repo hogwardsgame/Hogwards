@@ -398,7 +398,8 @@ CREATE TABLE IF NOT EXISTS brewing_queue (
     recipe_id   TEXT NOT NULL,
     started_at  TIMESTAMPTZ DEFAULT NOW(),
     ready_at    TIMESTAMPTZ NOT NULL,
-    collected   BOOLEAN DEFAULT FALSE
+    collected   BOOLEAN DEFAULT FALSE,
+    notified    BOOLEAN DEFAULT FALSE
 );
 
 -- ── МИРОВЫЕ БОССЫ ──────────────────────────────────────────────────────────
@@ -482,6 +483,7 @@ ALTER TABLE equipped_items ADD COLUMN IF NOT EXISTS bonus INT DEFAULT 0;
 ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS forest       INT DEFAULT 0;
 ALTER TABLE daily_limits ADD COLUMN IF NOT EXISTS black_market INT DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE brewing_queue ADD COLUMN IF NOT EXISTS notified BOOLEAN DEFAULT FALSE;
 
 -- В старых базах у одного игрока могло быть несколько строк одного предмета.
 -- Перед уникальным индексом складываем количество в одну строку.
