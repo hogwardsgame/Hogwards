@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 EVENT_TYPE_EMOJI = {
     "forest":     "🌲",
     "boss":       "💀",
+    "ambush":     "⚔️",
     "duel":       "⚔️",
     "lesson":     "📚",
     "pet":        "🐾",
