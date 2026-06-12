@@ -264,15 +264,13 @@ async def handle_main_menu_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYP
     user_id = update.effective_user.id
     text = update.message.text
 
-    # ── Кнопка «Др. команды» → показываем второй экран меню ──────────────────
+    # ── Кнопка «Др. команды» → категоризированное меню навигации ─────────────
     if text == t(user_id, "btn_other_commands"):
         if not await _db(user_exists, user_id):
             await update.message.reply_text(t(user_id, "not_registered"))
         else:
-            await update.message.reply_text(
-                t(user_id, "other_menu"),
-                reply_markup=other_menu_keyboard(user_id),
-            )
+            from handlers.navigation import cmd_navigation
+            await cmd_navigation(update, ctx)
         raise ApplicationHandlerStop
 
     # ── Кнопка «⬅️ Основное меню» → возврат ─────────────────────────────────
