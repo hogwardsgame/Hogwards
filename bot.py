@@ -48,6 +48,7 @@ from handlers.gringotts        import register_gringotts_handlers
 from handlers.forge            import register_forge_handlers
 from handlers.navigation       import register_navigation_handlers
 from handlers.ambush           import register_ambush_handlers
+from handlers.admin_panel      import register_admin_panel_handlers
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -147,6 +148,7 @@ def main():
     register_forge_handlers(app)
     register_navigation_handlers(app)
     register_ambush_handlers(app)
+    register_admin_panel_handlers(app)
 
     # ── Глобальный трекер активности ─────────────────────────────────────────
     # Срабатывает на ЛЮБОЕ обновление от игрока (команды, callback, текст),
