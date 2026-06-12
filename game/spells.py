@@ -399,7 +399,7 @@ SPELLS = {
     },
     "animus_supremus": {
         "id": "animus_supremus", "emoji": "⭐", "rarity": "legendary", "type": "attack",
-        "mana": 120, "damage": 200,
+        "mana": 155, "damage": 200,
         "effect": "burn", "effect_chance": 1.0,
         "desc_ru": "Высший дух — смертоносный удар чистой магии",
     },
@@ -411,7 +411,7 @@ SPELLS = {
     },
     "elder_wand_surge": {
         "id": "elder_wand_surge", "emoji": "⭐", "rarity": "legendary", "type": "attack",
-        "mana": 110, "damage": 180,
+        "mana": 140, "damage": 180,
         "effect": "disarm", "effect_chance": 1.0,
         "desc_ru": "Мощь Бузинной палочки — огромный урон и разоружение",
     },
@@ -434,7 +434,7 @@ SPELLS = {
     # ══════════════════════════════════════════════════════
     "fors_omnipotens": {
         "id": "fors_omnipotens", "emoji": "💫", "rarity": "mythical", "type": "attack",
-        "mana": 150, "damage": 300,
+        "mana": 230, "damage": 300,
         "effect": "burn", "effect_chance": 1.0,
         "desc_ru": "Всесильная сила — сокрушительный удар первозданной магии",
     },
