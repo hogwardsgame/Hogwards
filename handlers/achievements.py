@@ -216,6 +216,115 @@ ACHIEVEMENTS: dict[str, dict] = {
         "one_time": True,
         "trigger":  "level_50",
     },
+    # ── РАСШИРЕННЫЕ ДОСТИЖЕНИЯ ──────────────────────────────────────────────────
+    "first_blood": {
+        "name": "Первая кровь", "emoji": "🩸",
+        "desc": "Победи первого монстра", "tiers": [1],
+        "rewards": [{"xp": 50, "gold": 25, "title": None}],
+        "stat": "pve_kills", "first_only": True,
+    },
+    "first_duel": {
+        "name": "Дебют на арене", "emoji": "🤺",
+        "desc": "Проведи первую дуэль", "tiers": [1],
+        "rewards": [{"xp": 50, "gold": 25, "title": None}],
+        "stat": "pvp_total", "first_only": True,
+    },
+    "monster_legend": {
+        "name": "Легенда охоты", "emoji": "🗡️",
+        "desc": "Победи {n} монстров", "tiers": [1000, 5000],
+        "rewards": [
+            {"xp": 3000, "gold": 1500, "title": "Легенда охоты"},
+            {"xp": 8000, "gold": 4000, "title": "Бог войны"},
+        ],
+        "stat": "pve_kills",
+    },
+    "pvp_legend": {
+        "name": "Король арены", "emoji": "👑",
+        "desc": "Победи {n} игроков в дуэлях", "tiers": [1000, 5000],
+        "rewards": [
+            {"xp": 3000, "gold": 1500, "title": "Король арены"},
+            {"xp": 8000, "gold": 4000, "title": "Бессмертный"},
+        ],
+        "stat": "pvp_wins",
+    },
+    "scholar_supreme": {
+        "name": "Великий учёный", "emoji": "🎓",
+        "desc": "Пройди {n} уроков", "tiers": [1000, 5000],
+        "rewards": [
+            {"xp": 3000, "gold": 1500, "title": "Великий учёный"},
+            {"xp": 8000, "gold": 4000, "title": "Мудрец Хогвартса"},
+        ],
+        "stat": "lessons_done",
+    },
+    "quest_hero": {
+        "name": "Герой квестов", "emoji": "📜",
+        "desc": "Выполни {n} квестов", "tiers": [10, 50, 200],
+        "rewards": [
+            {"xp": 200, "gold": 100, "title": None},
+            {"xp": 600, "gold": 300, "title": "Искатель приключений"},
+            {"xp": 1500, "gold": 750, "title": "Легендарный герой"},
+        ],
+        "stat": "quests_done",
+    },
+    "master_brewer": {
+        "name": "Мастер зелий", "emoji": "⚗️",
+        "desc": "Свари {n} зелий", "tiers": [500, 2000],
+        "rewards": [
+            {"xp": 2000, "gold": 1000, "title": "Мастер зелий"},
+            {"xp": 5000, "gold": 2500, "title": "Алхимик века"},
+        ],
+        "stat": "potions_brewed",
+    },
+    "tycoon": {
+        "name": "Магнат", "emoji": "💎",
+        "desc": "Заработай {n} золота суммарно", "tiers": [1000000, 10000000],
+        "rewards": [
+            {"xp": 5000, "gold": 0, "title": "Магнат"},
+            {"xp": 15000, "gold": 0, "title": "Властелин золота"},
+        ],
+        "stat": "gold_earned",
+    },
+    "combo_master": {
+        "name": "Мастер комбо", "emoji": "✨",
+        "desc": "Используй {n} комбо-заклинаний", "tiers": [10, 50, 200],
+        "rewards": [
+            {"xp": 200, "gold": 100, "title": None},
+            {"xp": 500, "gold": 250, "title": "Мастер комбо"},
+            {"xp": 1500, "gold": 750, "title": "Виртуоз магии"},
+        ],
+        "stat": "combo_used",
+    },
+    "world_boss_legend": {
+        "name": "Спаситель мира", "emoji": "🌟",
+        "desc": "Участвуй в победах над {n} мировыми боссами", "tiers": [50, 200],
+        "rewards": [
+            {"xp": 5000, "gold": 2500, "title": "Спаситель мира"},
+            {"xp": 12000, "gold": 6000, "title": "Хранитель Хогвартса"},
+        ],
+        "stat": "world_boss_kills",
+    },
+    "boss_legend": {
+        "name": "Палач боссов", "emoji": "💀",
+        "desc": "Победи {n} боссов", "tiers": [50, 200],
+        "rewards": [
+            {"xp": 3000, "gold": 1500, "title": "Палач боссов"},
+            {"xp": 8000, "gold": 4000, "title": "Гроза подземелий"},
+        ],
+        "stat": "boss_kills",
+    },
+    "reach_level_10": {
+        "name": "Уверенный волшебник", "emoji": "📗",
+        "desc": "Достигни 10 уровня", "tiers": [1],
+        "rewards": [{"xp": 300, "gold": 150, "title": None}],
+        "stat": None, "one_time": True, "trigger": "level_10",
+    },
+    "reach_level_30": {
+        "name": "Архимаг", "emoji": "🔮",
+        "desc": "Достигни 30 уровня", "tiers": [1],
+        "rewards": [{"xp": 1200, "gold": 600, "title": "Архимаг"}],
+        "stat": None, "one_time": True, "trigger": "level_30",
+    },
+
 }
 
 TIER_LABELS = ["I", "II", "III", "IV"]
@@ -438,3 +547,11 @@ def register_achievements_handlers(app):
     app.add_handler(CallbackQueryHandler(cb_ach_cat,  pattern=r"^ach_cat:"))
     app.add_handler(CallbackQueryHandler(cb_ach_back, pattern=r"^ach_back$"))
 
+
+
+async def check_level_achievements(user_id: int, level: int, ctx=None):
+    """Проверяет достижения за достижение уровня. Вызывать после level up."""
+    milestones = {10: "level_10", 25: "level_25", 30: "level_30", 50: "level_50"}
+    for milestone_level, trigger in milestones.items():
+        if level >= milestone_level:
+            await trigger_achievement(user_id, trigger, ctx)

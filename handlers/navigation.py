@@ -67,6 +67,7 @@ CATEGORIES = {
             ("pets",         "🐾 Питомцы",      1),
             ("potions",      "🧪 Зелья",        1),
             ("achievements", "🎖️ Достижения",  1),
+            ("collections",  "📦 Коллекции",    1),
             ("titles",       "🏷️ Титулы",      1),
             ("journal",      "📖 История",      1),
             ("horcruxes",    "💎 Крестражи",    10),
@@ -96,6 +97,7 @@ COMMAND_MAP = {
     "titles":      ("handlers.titles",           "cmd_titles"),
     "journal":     ("handlers.player_journal",   "cmd_journal"),
     "horcruxes":   ("handlers.horcruxes",        "cmd_horcruxes"),
+    "collections": ("handlers.collections",      "cmd_collections"),
 }
 
 def _categories_keyboard() -> InlineKeyboardMarkup:

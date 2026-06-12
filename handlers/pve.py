@@ -433,8 +433,10 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
 
     # Обновить достижения и задания дня
     try:
-        from handlers.achievements import check_achievements
+        from handlers.achievements import check_achievements, check_level_achievements
         await check_achievements(user_id, ctx)
+        if leveled_up:
+            await check_level_achievements(user_id, new_level, ctx)
     except Exception:
         pass
     try:

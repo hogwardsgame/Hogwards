@@ -31,6 +31,7 @@ INPUT_COMMANDS = {
     "player_info": {"title": "🔍 Инфо об игроке",    "steps": [("user_id","ID игрока")]},
     "ban":         {"title": "🚫 Забанить",          "steps": [("user_id","ID игрока для бана")]},
     "unban":       {"title": "✅ Разбанить",         "steps": [("user_id","ID игрока для разбана")]},
+    "reset_player":{"title": "♻️ Обнулить игрока",   "steps": [("user_id","ID игрока для ПОЛНОГО сброса")]},
     "add_house_pts":{"title": "🏆 Очки факультету",  "steps": [("house","Факультет"), ("points","Очки")]},
     "broadcast":   {"title": "📢 Рассылка всем",     "steps": [("message","Текст сообщения для всех игроков")]},
     "set_maint_msg":{"title": "✏️ Текст о техработах", "steps": [("message","Что увидят игроки во время техработ")]},
@@ -50,6 +51,7 @@ CATEGORIES = {
             ("player_info", "🔍 Инфо об игроке"),
             ("ban",         "🚫 Забанить"),
             ("unban",       "✅ Разбанить"),
+            ("reset_player","♻️ Обнулить игрока"),
         ],
     },
     "economy": {
@@ -123,6 +125,38 @@ async def cb_apanel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     parts = query.data.split(":")
     action = parts[1]
+
+    if action == "resetconfirm":
+        tid = int(parts[2])
+        from database import reset_player
+        try:
+            target = get_user(tid)
+            name = target["wizard_name"] if target else str(tid)
+            reset_player(tid)
+            try:
+                with get_conn() as conn:
+                    execute(conn,
+                        "INSERT INTO admin_log (admin_id, action, target_id, details) VALUES (%s,%s,%s,%s)",
+                        user_id, "reset_player", tid, name)
+            except Exception:
+                pass
+            await query.edit_message_text(
+                f"♻️ *Игрок обнулён*\n\n"
+                f"{name} (ID {tid}) полностью сброшен.\n"
+                f"При следующем /start он пройдёт регистрацию как новый игрок.",
+                parse_mode="Markdown"
+            )
+            # Уведомим игрока
+            try:
+                await ctx.bot.send_message(tid,
+                    "♻️ Твой персонаж был сброшен администратором.\n"
+                    "Отправь /start чтобы начать игру заново!")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.exception("reset_player: %s", e)
+            await query.edit_message_text(f"⚠️ Ошибка при обнулении: {str(e)[:120]}")
+        return
 
     if action == "main":
         await query.edit_message_text(
@@ -308,6 +342,28 @@ async def _execute_input_command(update, ctx, cmd: str, data: dict):
             tid = int(data["user_id"])
             unban_user(tid); _log("unban", tid)
             await reply(f"✅ Игрок {tid} разбанен.")
+
+        elif cmd == "reset_player":
+            tid = int(data["user_id"])
+            # Подтверждение через инлайн-кнопку — действие необратимо
+            target = get_user(tid)
+            if not target:
+                await reply(f"❌ Игрок {tid} не найден.")
+                return
+            await update.message.reply_text(
+                f"⚠️ *Подтверждение обнуления*\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"Игрок: *{target['wizard_name']}* (ID {tid})\n"
+                f"Уровень: {target['level']}, золото: {target['gold']}\n\n"
+                f"❗ Все данные игрока будут *удалены безвозвратно*.\n"
+                f"При следующем /start он начнёт игру заново с выбора имени.\n\n"
+                f"Ты уверен?",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("♻️ Да, обнулить", callback_data=f"apanel:resetconfirm:{tid}"),
+                    InlineKeyboardButton("❌ Отмена",       callback_data="apanel:main"),
+                ]])
+            )
 
         elif cmd == "add_house_pts":
             house = data["house"].lower(); pts = int(data["points"])
