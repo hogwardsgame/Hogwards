@@ -229,7 +229,7 @@ _BUTTON_ROUTES: list[tuple[str, str, str]] = [
     ("btn_gringotts",    "handlers.gringotts",        "cmd_gringotts"),
     ("btn_forge",        "handlers.forge",            "cmd_forge"),
     # Админ
-    ("btn_admin_panel",        "handlers.admin", "cmd_admin"),
+    ("btn_admin_panel",        "handlers.admin_panel", "cmd_admin_panel"),
     ("btn_admin_stats",        "handlers.admin", "cmd_stats"),
     ("btn_admin_items",        "handlers.admin", "cmd_list_items"),
     ("btn_admin_spells",       "handlers.admin", "cmd_list_spells"),
