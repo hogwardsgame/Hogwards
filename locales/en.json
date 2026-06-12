@@ -114,5 +114,9 @@
   "btn_daily": "🎁 Daily Bonus",
   "btn_info": "ℹ️ Info",
   "btn_gringotts": "🏦 Gringotts",
-  "btn_forge": "⚒️ Forge"
+  "btn_forge": "⚒️ Forge",
+  "btn_collections": "📦 Collections",
+  "btn_league": "🎖️ Duel League",
+  "btn_myroom": "🏠 My Room",
+  "btn_wandcraft": "🪄 Wand Workshop"
 }

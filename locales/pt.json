@@ -114,5 +114,9 @@
   "btn_daily": "🎁 Bônus diário",
   "btn_info": "ℹ️ Info",
   "btn_gringotts": "🏦 Gringotts",
-  "btn_forge": "⚒️ Forja"
+  "btn_forge": "⚒️ Forja",
+  "btn_collections": "📦 Coleções",
+  "btn_league": "🎖️ Liga de duelos",
+  "btn_myroom": "🏠 Meu quarto",
+  "btn_wandcraft": "🪄 Oficina de varinhas"
 }

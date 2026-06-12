@@ -114,5 +114,9 @@
   "btn_daily": "🎁 Tagesbonus",
   "btn_info": "ℹ️ Info",
   "btn_gringotts": "🏦 Gringotts",
-  "btn_forge": "⚒️ Schmiede"
+  "btn_forge": "⚒️ Schmiede",
+  "btn_collections": "📦 Sammlungen",
+  "btn_league": "🎖️ Duell-Liga",
+  "btn_myroom": "🏠 Mein Zimmer",
+  "btn_wandcraft": "🪄 Zauberstab-Werkstatt"
 }

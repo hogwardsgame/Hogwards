@@ -114,5 +114,9 @@
   "btn_daily": "🎁 Бонус дня",
   "btn_info": "ℹ️ Инфо",
   "btn_gringotts": "🏦 Гринготтс",
-  "btn_forge": "⚒️ Кузница"
+  "btn_forge": "⚒️ Кузница",
+  "btn_collections": "📦 Коллекции",
+  "btn_league": "🎖️ Дуэльная лига",
+  "btn_myroom": "🏠 Моя комната",
+  "btn_wandcraft": "🪄 Мастерская палочек"
 }
