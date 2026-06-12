@@ -230,8 +230,10 @@ async def cb_pve_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     sname = spell_display_name(spell_id, lang)
     log_entry = f"🧙 {sname}: {result['log']}"
+    if result.get("crit"):
+        log_entry = f"💥💥 *КРИТИЧЕСКИЙ УДАР!* 💥💥\n" + log_entry
     if result.get("combo"):
-        log_entry = f"✨ КОМБО «{result['combo']['name']}»!\n" + log_entry
+        log_entry = f"✨🌟 КОМБО «{result['combo']['name']}»! 🌟✨\n" + log_entry
     if result.get("flavour"):
         log_entry += f"\n_{result['flavour']}_"
     session["log"].append(log_entry)
@@ -383,9 +385,21 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
             user_id, monster["id"]
         ) or 0
     xp_actual = apply_antifarm_xp(drop["xp"], repeat_count, 0, user["level"], 0)
+    gold_actual = drop["gold"]
+
+    # Бонусы питомца (xp_mult, gold_mult)
+    try:
+        from handlers.pets import get_pet_bonuses
+        pb = get_pet_bonuses(user_id)
+        if pb.get("xp_mult"):
+            xp_actual = int(xp_actual * (1 + pb["xp_mult"]))
+        if pb.get("gold_mult"):
+            gold_actual = int(gold_actual * (1 + pb["gold_mult"]))
+    except Exception:
+        pass
 
     new_level, leveled_up = add_xp(user_id, xp_actual)
-    add_gold(user_id, drop["gold"])
+    add_gold(user_id, gold_actual)
     increment_daily(user_id, "pve_dungeons")
 
     # Очки факультета
@@ -397,7 +411,7 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
         execute(conn, """
             INSERT INTO pve_sessions (user_id, zone, monster, result, xp_gained, gold_gained)
             VALUES (%s, %s, %s, 'win', %s, %s)
-        """, user_id, session["zone_id"], monster["id"], xp_actual, drop["gold"])
+        """, user_id, session["zone_id"], monster["id"], xp_actual, gold_actual)
         if monster.get("is_boss"):
             execute(conn, "UPDATE user_stats SET boss_kills = boss_kills + 1 WHERE user_id = %s", user_id)
         else:
@@ -424,7 +438,7 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
 
     text = (
         f"🏆 *{mname} повержен!*\n"
-        f"+{xp_actual} XP | +{drop['gold']} 💰 | +{pts} очков факультету\n"
+        f"+{xp_actual} XP | +{gold_actual} 💰 | +{pts} очков факультету\n"
         f"\n{summary}"
         f"{drop_text}"
         f"{level_text}"
@@ -450,6 +464,12 @@ async def _pve_win(query, user_id: int, session: dict, ctx: ContextTypes.DEFAULT
         from database import add_weekly_xp, add_weekly_kill
         add_weekly_xp(user_id, xp_actual)
         add_weekly_kill(user_id)
+    except Exception:
+        pass
+    # Питомец получает опыт за бой
+    try:
+        from handlers.pets import add_pet_xp
+        add_pet_xp(user_id, 25 if monster.get("is_boss") else 10)
     except Exception:
         pass
 

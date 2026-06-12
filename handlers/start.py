@@ -42,7 +42,7 @@ def main_menu_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     buttons = [
         [KeyboardButton(t(user_id, "btn_profile")),   KeyboardButton(t(user_id, "btn_inventory"))],
         [KeyboardButton(t(user_id, "btn_shop")),       KeyboardButton(t(user_id, "btn_lessons"))],
-        [KeyboardButton(t(user_id, "btn_duel")),       KeyboardButton(t(user_id, "btn_quests"))],
+        [KeyboardButton(t(user_id, "btn_duel")),       KeyboardButton(t(user_id, "btn_collections"))],
         [KeyboardButton(t(user_id, "btn_daily")),      KeyboardButton(t(user_id, "btn_info"))],
         [KeyboardButton(t(user_id, "btn_other_commands"))],
     ]
@@ -92,6 +92,16 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if exists:
         user = await _db(get_user, user_id)
         set_cached_lang(user_id, user["lang"])
+
+        # Сводка «Пока тебя не было» — читаем ДО обновления активности
+        try:
+            from handlers.welcome_back import build_welcome_back
+            summary = await _db(build_welcome_back, user_id)
+            if summary:
+                await update.message.reply_text(summary, parse_mode="Markdown")
+        except Exception:
+            pass
+
         await update.message.reply_text(
             t(user_id, "already_registered"),
             reply_markup=main_menu_keyboard(user_id),
@@ -204,7 +214,7 @@ _BUTTON_ROUTES: list[tuple[str, str, str]] = [
     ("btn_inventory",    "handlers.inventory",        "cmd_inventory"),
     ("btn_shop",         "handlers.shop",             "cmd_shop"),
     ("btn_lessons",      "handlers.lessons",          "cmd_lessons"),
-    ("btn_quests",       "handlers.quests",           "cmd_quests"),
+    ("btn_collections",  "handlers.collections",      "cmd_collections"),
     ("btn_house",        "handlers.house_points",     "cmd_house"),
     ("btn_worldboss",    "handlers.world_bosses",     "cmd_worldboss"),
     ("btn_tournament",   "handlers.tournament",       "cmd_tournament"),

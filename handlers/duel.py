@@ -117,11 +117,31 @@ async def _end_duel(duel_id: int, winner_id: int | None, ctx: ContextTypes.DEFAU
         winner_name = player["wizard_name"] if winner_id == player["user_id"] else opponent["wizard_name"]
         loser_name  = opponent["wizard_name"] if winner_id == player["user_id"] else player["wizard_name"]
 
+        # Обновляем рейтинг ELO дуэльной лиги
+        elo_line = ""
+        try:
+            from handlers.duel_league import update_elo, _get_division
+            res = update_elo(winner_id, loser_id) if loser_id else None
+            if res:
+                w_change, l_change = res
+                from handlers.duel_league import _get_rating
+                w_elo = _get_rating(winner_id)["elo"]
+                elo_line = f"\n📊 ELO: победитель {w_elo} (+{w_change})"
+        except Exception:
+            pass
+        # Питомец победителя получает опыт
+        try:
+            from handlers.pets import add_pet_xp
+            add_pet_xp(winner_id, 15)
+        except Exception:
+            pass
+
         result_text = (
             f"🏆 *{winner_name} победил!*\n"
             f"❌ {loser_name} проиграл\n\n"
             f"Победитель: +{xp_win} XP | +{gold_win} 💰\n"
             f"Проигравший: +{xp_lose} XP | +{gold_lose} 💰"
+            f"{elo_line}"
         )
         try:
             await ctx.bot.send_message(player["user_id"], result_text, parse_mode="Markdown")

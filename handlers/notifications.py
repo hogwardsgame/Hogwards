@@ -170,4 +170,16 @@ def setup_notification_jobs(scheduler, bot):
         CronTrigger(day_of_week="mon", hour=0, minute=1, timezone="UTC"),
         id="weekly_rating", replace_existing=True
     )
+    # Сезон дуэльной лиги — 1-го числа каждого месяца в 00:05 UTC
+    def _league_finalize():
+        try:
+            from handlers.duel_league import finalize_season
+            asyncio.get_event_loop().create_task(finalize_season(bot))
+        except Exception:
+            pass
+    scheduler.add_job(
+        _league_finalize,
+        CronTrigger(day=1, hour=0, minute=5, timezone="UTC"),
+        id="league_season", replace_existing=True
+    )
     logger.info("Notification jobs registered")

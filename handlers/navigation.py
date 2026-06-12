@@ -38,6 +38,7 @@ CATEGORIES = {
         "desc":  "Дуэли с игроками и турниры.",
         "items": [
             ("duel",       "⚔️ Дуэль",            1),
+            ("league",     "🎖️ Дуэльная лига",   1),
             ("tournament", "🏆 Турнир",           1),
             ("triwizard",  "🏅 Турнир Трёх",      5),
         ],
@@ -48,6 +49,7 @@ CATEGORIES = {
         "items": [
             ("gringotts",   "🏦 Гринготтс",      1),
             ("forge",       "⚒️ Кузница",        1),
+            ("wandcraft",   "🪄 Мастерская палочек", 1),
             ("trade",       "🤝 Обмен",          1),
             ("blackmarket", "🕯️ Чёрный рынок",  5),
         ],
@@ -65,6 +67,7 @@ CATEGORIES = {
         "desc":  "Питомцы, зелья, достижения и история.",
         "items": [
             ("pets",         "🐾 Питомцы",      1),
+            ("myroom",       "🏠 Моя комната",  1),
             ("potions",      "🧪 Зелья",        1),
             ("achievements", "🎖️ Достижения",  1),
             ("collections",  "📦 Коллекции",    1),
@@ -98,6 +101,9 @@ COMMAND_MAP = {
     "journal":     ("handlers.player_journal",   "cmd_journal"),
     "horcruxes":   ("handlers.horcruxes",        "cmd_horcruxes"),
     "collections": ("handlers.collections",      "cmd_collections"),
+    "league":      ("handlers.duel_league",       "cmd_league"),
+    "myroom":      ("handlers.my_room",           "cmd_my_room"),
+    "wandcraft":   ("handlers.wandcraft",         "cmd_wandcraft"),
 }
 
 def _categories_keyboard() -> InlineKeyboardMarkup:
