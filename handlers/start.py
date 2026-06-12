@@ -264,6 +264,18 @@ async def handle_main_menu_buttons(update: Update, ctx: ContextTypes.DEFAULT_TYP
     user_id = update.effective_user.id
     text = update.message.text
 
+    # ── Режим обслуживания: блокируем всех кроме админов ──────────────────────
+    try:
+        from handlers.admin import is_maintenance, maintenance_message
+        from config import ADMIN_IDS
+        if is_maintenance() and (not ADMIN_IDS or user_id not in ADMIN_IDS):
+            await update.message.reply_text(maintenance_message())
+            raise ApplicationHandlerStop
+    except ApplicationHandlerStop:
+        raise
+    except Exception:
+        pass
+
     # ── Кнопка «Др. команды» → категоризированное меню навигации ─────────────
     if text == t(user_id, "btn_other_commands"):
         if not await _db(user_exists, user_id):

@@ -29,7 +29,22 @@ def admin_only(func):
 
 
 def is_maintenance() -> bool:
-    return _maintenance_mode
+    """Читает флаг из БД — переживает перезапуски бота."""
+    try:
+        from database import get_setting
+        return get_setting("maintenance", "0") == "1"
+    except Exception:
+        return False
+
+
+def maintenance_message() -> str:
+    """Сообщение, которое видят игроки во время техработ."""
+    try:
+        from database import get_setting
+        return get_setting("maintenance_msg",
+            "🛠 Идут технические работы. Игра скоро вернётся — загляни немного позже!")
+    except Exception:
+        return "🛠 Идут технические работы. Игра скоро вернётся!"
 
 
 # ── /admin — главное меню ──────────────────────────────────────────────────────
@@ -419,11 +434,27 @@ async def cmd_economy_info(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def cmd_maintenance(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    global _maintenance_mode
-    _maintenance_mode = not _maintenance_mode
-    status = "включён" if _maintenance_mode else "выключен"
-    log_admin_action(update.effective_user.id, "maintenance", None, str(_maintenance_mode))
-    await update.message.reply_text(f"🛠 Тех. обслуживание {status}.")
+    from database import get_setting, set_setting
+    current = get_setting("maintenance", "0") == "1"
+    new_state = not current
+    set_setting("maintenance", "1" if new_state else "0")
+    status = "включён" if new_state else "выключен"
+    log_admin_action(update.effective_user.id, "maintenance", None, str(new_state))
+
+    if new_state:
+        await update.message.reply_text(
+            f"🛠 *Режим обслуживания ВКЛЮЧЁН*\n\n"
+            f"Обычные игроки сейчас видят сообщение о техработах и не могут "
+            f"выполнять действия. Ты как админ продолжаешь работать как обычно.\n\n"
+            f"Не забудь выключить режим после завершения работ!",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ *Режим обслуживания ВЫКЛЮЧЕН*\n\n"
+            f"Игра снова доступна всем игрокам.",
+            parse_mode="Markdown"
+        )
 
 
 @admin_only
@@ -527,7 +558,7 @@ async def cmd_list_bosses(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 def register_admin_handlers(app):
-    app.add_handler(CommandHandler("admin",           cmd_admin))
+    app.add_handler(CommandHandler("admin_old",       cmd_admin))
     app.add_handler(CommandHandler("stats",           cmd_stats))
     app.add_handler(CommandHandler("broadcast",       cmd_broadcast))
     app.add_handler(CommandHandler("give_gold",       cmd_give_gold))

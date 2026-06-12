@@ -33,6 +33,7 @@ INPUT_COMMANDS = {
     "unban":       {"title": "✅ Разбанить",         "steps": [("user_id","ID игрока для разбана")]},
     "add_house_pts":{"title": "🏆 Очки факультету",  "steps": [("house","Факультет"), ("points","Очки")]},
     "broadcast":   {"title": "📢 Рассылка всем",     "steps": [("message","Текст сообщения для всех игроков")]},
+    "set_maint_msg":{"title": "✏️ Текст о техработах", "steps": [("message","Что увидят игроки во время техработ")]},
 }
 
 # ── Категории панели ──────────────────────────────────────────────────────────
@@ -82,7 +83,8 @@ CATEGORIES = {
         "buttons": [
             ("broadcast",   "📢 Рассылка всем"),
             ("admin_log",   "📋 Журнал действий"),
-            ("maintenance", "🔧 Режим обслуживания"),
+            ("maintenance",     "🔧 Режим обслуживания вкл/выкл"),
+            ("set_maint_msg",   "✏️ Текст сообщения о техработах"),
         ],
     },
 }
@@ -329,6 +331,15 @@ async def _execute_input_command(update, ctx, cmd: str, data: dict):
                     pass
             _log("broadcast", "", f"{sent} users")
             await reply(f"✅ Рассылка отправлена {sent} игрокам.")
+
+        elif cmd == "set_maint_msg":
+            from database import set_setting
+            set_setting("maintenance_msg", data["message"])
+            _log("set_maint_msg", "", data["message"][:50])
+            await reply(
+                f"✅ Сообщение о техработах обновлено:\n\n_{data['message']}_",
+                parse_mode="Markdown"
+            )
 
     except ValueError:
         await reply("❌ Неверный формат данных. Попробуй снова через панель.")
