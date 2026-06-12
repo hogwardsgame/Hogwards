@@ -1033,45 +1033,63 @@ def set_setting(key: str, value: str):
 def reset_player(user_id: int):
     """Полностью обнулить игрока — удалить все данные.
     После этого игрок при /start проходит регистрацию заново, как новый.
+
+    Важно: сначала чистим ВСЕ таблицы, которые ссылаются на users(user_id)
+    через FOREIGN KEY, иначе DELETE FROM users упадёт по constraint и
+    останутся имя/факультет.
     """
-    # Все таблицы, где есть данные игрока (кроме служебных, что создаются на лету)
-    tables = [
-        "user_stats", "user_spells", "inventory", "equipped_items",
-        "lesson_attendance", "user_quests", "house_points_log",
-        "auction_bids", "daily_limits", "weekly_stats", "active_potions",
-        "gringotts", "conversation_states", "achievements", "user_titles",
-        "tournament_participants", "trade_log", "user_recipes", "brewing_queue",
-        "world_boss_damage", "location_progress", "season_ratings",
+    # (таблица, колонка) — все ссылки на игрока
+    fk_refs = [
+        ("user_stats", "user_id"), ("user_spells", "user_id"),
+        ("inventory", "user_id"), ("equipped_items", "user_id"),
+        ("pve_sessions", "user_id"), ("lesson_attendance", "user_id"),
+        ("user_quests", "user_id"), ("house_points_log", "user_id"),
+        ("daily_limits", "user_id"), ("weekly_stats", "user_id"),
+        ("active_potions", "user_id"), ("gringotts", "user_id"),
+        ("conversation_states", "user_id"), ("achievements", "user_id"),
+        ("user_titles", "user_id"), ("tournament_participants", "user_id"),
+        ("user_recipes", "user_id"), ("brewing_queue", "user_id"),
+        ("world_boss_damage", "user_id"), ("location_progress", "user_id"),
+        ("season_ratings", "user_id"),
+        # ── Таблицы с НЕстандартными колонками (FK на users) ──
+        ("duels", "challenger_id"), ("duels", "opponent_id"),
+        ("auction_lots", "seller_id"), ("auction_bids", "bidder_id"),
+        ("trade_log", "sender_id"), ("trade_log", "receiver_id"),
     ]
-    # Таблицы, создаваемые модулями на лету (могут отсутствовать)
-    optional_tables = [
-        "login_streaks", "daily_tasks", "user_pets", "bm_purchases",
-        "horcrux_contributors", "ambushes", "collection_claims", "gringotts_log",
+    # Таблицы, создаваемые модулями на лету (могут отсутствовать, без FK)
+    optional_refs = [
+        ("login_streaks", "user_id"), ("daily_tasks", "user_id"),
+        ("user_pets", "user_id"), ("bm_purchases", "user_id"),
+        ("horcrux_contributors", "user_id"), ("ambushes", "user_id"),
+        ("collection_claims", "user_id"), ("gringotts_log", "user_id"),
     ]
+
     with get_conn() as conn:
-        for tbl in tables:
-            try:
-                execute(conn, f"DELETE FROM {tbl} WHERE user_id = %s", user_id)
-            except Exception as e:
-                logger.warning("reset_player %s: %s", tbl, e)
-        for tbl in optional_tables:
-            try:
-                execute(conn, f"DELETE FROM {tbl} WHERE user_id = %s", user_id)
-            except Exception:
-                pass  # таблицы может не быть — это нормально
-        # Чистим лоты на аукционе, выставленные игроком
-        try:
-            execute(conn, "DELETE FROM auction_lots WHERE user_id = %s", user_id)
-        except Exception:
-            pass
-        # Убираем из отряда
+        # Сначала вывести игрока из всех отрядов и распустить его отряд
         try:
             execute(conn, "UPDATE users SET squad_id = NULL WHERE squad_id IN (SELECT id FROM squads WHERE leader_id = %s)", user_id)
+            execute(conn, "UPDATE users SET squad_id = NULL WHERE user_id = %s", user_id)
             execute(conn, "DELETE FROM squads WHERE leader_id = %s", user_id)
-        except Exception:
-            pass
-        # Наконец удаляем самого игрока — при /start он зарегистрируется заново
+        except Exception as e:
+            logger.warning("reset_player squads: %s", e)
+
+        # Чистим все FK-ссылки
+        for tbl, col in fk_refs:
+            try:
+                execute(conn, f"DELETE FROM {tbl} WHERE {col} = %s", user_id)
+            except Exception as e:
+                logger.warning("reset_player %s.%s: %s", tbl, col, e)
+
+        # Необязательные таблицы
+        for tbl, col in optional_refs:
+            try:
+                execute(conn, f"DELETE FROM {tbl} WHERE {col} = %s", user_id)
+            except Exception:
+                pass  # таблицы может не быть — это нормально
+
+        # Теперь, когда все зависимости удалены, можно удалить самого игрока
         try:
             execute(conn, "DELETE FROM users WHERE user_id = %s", user_id)
         except Exception as e:
-            logger.warning("reset_player users: %s", e)
+            logger.error("reset_player FAILED to delete user %s: %s", user_id, e)
+            raise  # пробрасываем, чтобы админ увидел что сброс не прошёл
