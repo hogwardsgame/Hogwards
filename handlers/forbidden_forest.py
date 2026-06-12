@@ -13,6 +13,7 @@ from database import (
     get_conn, execute, fetchrow, fetchall,
 )
 from utils.i18n import t
+from game.items import ITEMS, item_display_name
 from config import DAILY_LIMITS
 
 logger = logging.getLogger(__name__)
@@ -339,7 +340,11 @@ async def cb_ff_choice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     rewards = []
     if xp:   rewards.append(f"+{xp} XP")
     if gold: rewards.append(f"+{gold} 💰")
-    if item and qty > 0: rewards.append(f"+{qty}× {item}")
+    if item and qty > 0:
+        _item_data = ITEMS.get(item, {})
+        _item_name = item_display_name(_item_data, "ru") if _item_data else item
+        _item_emoji = _item_data.get("emoji", "📦")
+        rewards.append(f"+{qty}× {_item_emoji} {_item_name}")
     reward_str = "  •  ".join(rewards) if rewards else "Без наград"
     night_str  = "\n🌙 _Ночной бонус ×1.5 применён_" if night else ""
 

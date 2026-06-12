@@ -13,6 +13,7 @@ from database import (
     get_conn, execute, fetchrow, fetchall,
 )
 from utils.i18n import t
+from game.items import ITEMS, item_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +257,7 @@ async def cb_hx_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"📍 {h['loc_name']}\n\n"
             f"_{h['desc']}_\n\n"
             f"⚠️ Крестраж нужно уничтожить!\n"
-            f"{'🗡️ Нужен предмет: ' + h['destroy_item'] if h.get('destroy_item') else ''}"
+            f"{'🗡️ Нужен предмет: ' + (ITEMS.get(h['destroy_item'], {}).get('emoji', '') + ' ' + item_display_name(ITEMS.get(h['destroy_item'], {}), 'ru')) if h.get('destroy_item') else ''}"
             f"{'✨ Нужно заклинание: ' + h['destroy_spell'] if h.get('destroy_spell') else ''}\n\n"
             f"+{xp_find} XP за обнаружение",
             parse_mode="Markdown",
@@ -301,8 +302,12 @@ async def cb_hx_destroy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     "SELECT quantity FROM inventory WHERE user_id=%s AND item_id=%s",
                     user_id, h["destroy_item"])
             if not inv or inv["quantity"] < 1:
+                item_data = ITEMS.get(h["destroy_item"], {})
+                item_name = item_display_name(item_data, "ru") if item_data else h["destroy_item"]
+                item_emoji = item_data.get("emoji", "🗡️")
                 await query.answer(
-                    f"❌ Нужен предмет: {h['destroy_item']}\nЕго можно найти в Запретном лесу или у боссов.",
+                    f"❌ Нужен предмет: {item_emoji} {item_name}\n"
+                    f"Его можно найти в Запретном лесу 🌲 или выбить с боссов 🐉.",
                     show_alert=True
                 )
                 return
