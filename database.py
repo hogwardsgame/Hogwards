@@ -1034,11 +1034,11 @@ def reset_player(user_id: int):
     """Полностью обнулить игрока — удалить все данные.
     После этого игрок при /start проходит регистрацию заново, как новый.
 
-    Важно: сначала чистим ВСЕ таблицы, которые ссылаются на users(user_id)
-    через FOREIGN KEY, иначе DELETE FROM users упадёт по constraint и
-    останутся имя/факультет.
+    Использует SAVEPOINT перед каждым DELETE: если какая-то таблица не
+    существует или DELETE падает, откатывается только этот шаг, а не вся
+    транзакция (иначе PostgreSQL блокирует всё соединение —
+    'current transaction is aborted').
     """
-    # (таблица, колонка) — все ссылки на игрока
     fk_refs = [
         ("user_stats", "user_id"), ("user_spells", "user_id"),
         ("inventory", "user_id"), ("equipped_items", "user_id"),
@@ -1051,45 +1051,44 @@ def reset_player(user_id: int):
         ("user_recipes", "user_id"), ("brewing_queue", "user_id"),
         ("world_boss_damage", "user_id"), ("location_progress", "user_id"),
         ("season_ratings", "user_id"),
-        # ── Таблицы с НЕстандартными колонками (FK на users) ──
         ("duels", "challenger_id"), ("duels", "opponent_id"),
         ("auction_lots", "seller_id"), ("auction_bids", "bidder_id"),
         ("trade_log", "sender_id"), ("trade_log", "receiver_id"),
-    ]
-    # Таблицы, создаваемые модулями на лету (могут отсутствовать, без FK)
-    optional_refs = [
+        # Таблицы, создаваемые модулями на лету
         ("login_streaks", "user_id"), ("daily_tasks", "user_id"),
         ("user_pets", "user_id"), ("bm_purchases", "user_id"),
         ("horcrux_contributors", "user_id"), ("ambushes", "user_id"),
         ("collection_claims", "user_id"), ("gringotts_log", "user_id"),
     ]
 
+    def _safe_delete(cur, sql, *params):
+        """DELETE с SAVEPOINT — сбой одного не ломает транзакцию."""
+        try:
+            cur.execute("SAVEPOINT sp_reset")
+            cur.execute(sql, params)
+            cur.execute("RELEASE SAVEPOINT sp_reset")
+        except Exception as e:
+            cur.execute("ROLLBACK TO SAVEPOINT sp_reset")
+            logger.warning("reset_player skip: %s", e)
+
     with get_conn() as conn:
-        # Сначала вывести игрока из всех отрядов и распустить его отряд
-        try:
-            execute(conn, "UPDATE users SET squad_id = NULL WHERE squad_id IN (SELECT id FROM squads WHERE leader_id = %s)", user_id)
-            execute(conn, "UPDATE users SET squad_id = NULL WHERE user_id = %s", user_id)
-            execute(conn, "DELETE FROM squads WHERE leader_id = %s", user_id)
-        except Exception as e:
-            logger.warning("reset_player squads: %s", e)
+        with conn.cursor() as cur:
+            # Вывести из отрядов и распустить отряд игрока
+            _safe_delete(cur,
+                "UPDATE users SET squad_id = NULL WHERE squad_id IN (SELECT id FROM squads WHERE leader_id = %s)", user_id)
+            _safe_delete(cur, "UPDATE users SET squad_id = NULL WHERE user_id = %s", user_id)
+            _safe_delete(cur, "DELETE FROM squads WHERE leader_id = %s", user_id)
 
-        # Чистим все FK-ссылки
-        for tbl, col in fk_refs:
+            # Все ссылки на игрока
+            for tbl, col in fk_refs:
+                _safe_delete(cur, f"DELETE FROM {tbl} WHERE {col} = %s", user_id)
+
+            # Сам игрок — этот DELETE должен пройти, иначе ошибка
             try:
-                execute(conn, f"DELETE FROM {tbl} WHERE {col} = %s", user_id)
+                cur.execute("SAVEPOINT sp_user")
+                cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+                cur.execute("RELEASE SAVEPOINT sp_user")
             except Exception as e:
-                logger.warning("reset_player %s.%s: %s", tbl, col, e)
-
-        # Необязательные таблицы
-        for tbl, col in optional_refs:
-            try:
-                execute(conn, f"DELETE FROM {tbl} WHERE {col} = %s", user_id)
-            except Exception:
-                pass  # таблицы может не быть — это нормально
-
-        # Теперь, когда все зависимости удалены, можно удалить самого игрока
-        try:
-            execute(conn, "DELETE FROM users WHERE user_id = %s", user_id)
-        except Exception as e:
-            logger.error("reset_player FAILED to delete user %s: %s", user_id, e)
-            raise  # пробрасываем, чтобы админ увидел что сброс не прошёл
+                cur.execute("ROLLBACK TO SAVEPOINT sp_user")
+                logger.error("reset_player FAILED to delete user %s: %s", user_id, e)
+                raise
