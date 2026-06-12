@@ -118,6 +118,9 @@ def _main_keyboard(groups: dict) -> InlineKeyboardMarkup:
             cnt   = len(groups[itype])
             label = f"{TYPE_HEADER[itype]} ({cnt})"
             buttons.append([InlineKeyboardButton(label, callback_data=f"inv_tab:{itype}:0")])
+    # Кнопка авто-экипировки лучшего снаряжения
+    if "equipment" in groups:
+        buttons.append([InlineKeyboardButton("⚡ Надеть лучшее снаряжение", callback_data="inv_autoequip")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -492,9 +495,83 @@ async def cb_inv_use(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cb_inv_autoequip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Надеть лучшее снаряжение в каждый слот по величине бонуса."""
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    inv = _get_inventory(user_id)
+
+    # Группируем снаряжение по слоту, выбираем лучшее по бонусу
+    best_per_slot: dict[str, tuple] = {}  # slot -> (item_id, bonus)
+    for row in inv:
+        item = _safe_item(row["item_id"])
+        if item.get("type") != "equipment":
+            continue
+        slot  = item.get("slot")
+        if not slot:
+            continue
+        bonus = item_stat_value(item)
+        if slot not in best_per_slot or bonus > best_per_slot[slot][1]:
+            best_per_slot[slot] = (row["item_id"], bonus, item.get("stat", ""))
+
+    if not best_per_slot:
+        await query.answer("Нет снаряжения для экипировки.", show_alert=True)
+        return
+
+    equipped_now = _get_equipped(user_id)
+    changes = []
+
+    with get_conn() as conn:
+        for slot, (item_id, bonus, stat) in best_per_slot.items():
+            current = equipped_now.get(slot)
+            # Уже надет этот предмет — пропускаем
+            if current and current.get("item_id") == item_id:
+                continue
+            # Снимаем старый бонус
+            if current:
+                old_item  = _safe_item(current["item_id"])
+                old_stat  = old_item.get("stat", "")
+                old_bonus = current.get("bonus") or 0
+                if old_stat and old_bonus:
+                    execute(conn, f"UPDATE users SET {old_stat}={old_stat}-%s WHERE user_id=%s", old_bonus, user_id)
+            # Надеваем новый
+            execute(conn, """
+                INSERT INTO equipped_items (user_id, slot, item_id, bonus)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (user_id, slot) DO UPDATE SET item_id=EXCLUDED.item_id, bonus=EXCLUDED.bonus
+            """, user_id, slot, item_id, bonus)
+            if stat and bonus:
+                execute(conn, f"UPDATE users SET {stat}={stat}+%s WHERE user_id=%s", bonus, user_id)
+            item = _safe_item(item_id)
+            changes.append(f"{item.get('emoji','🔲')} {item_display_name(item,'ru')}")
+
+    if not changes:
+        await query.answer("Лучшее снаряжение уже надето!", show_alert=True)
+        return
+
+    inv_fresh      = _get_inventory(user_id)
+    equipped_fresh = _get_equipped(user_id)
+    groups         = _group_inventory(inv_fresh)
+
+    changes_text = "\n".join(f"  ✅ {c}" for c in changes)
+    await query.edit_message_text(
+        f"⚡ *Снаряжение обновлено!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"Надето лучшее в {len(changes)} слот(ов):\n{changes_text}\n\n"
+        f"_Характеристики пересчитаны._",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("◀️ К инвентарю", callback_data="inv_main")
+        ]])
+    )
+
+
 def register_inventory_handlers(app):
     app.add_handler(CommandHandler("inventory", cmd_inventory))
-    app.add_handler(CallbackQueryHandler(cb_inv_main,    pattern=r"^inv_main$"))
+    app.add_handler(CallbackQueryHandler(cb_inv_main,      pattern=r"^inv_main$"))
+    app.add_handler(CallbackQueryHandler(cb_inv_autoequip, pattern=r"^inv_autoequip$"))
     app.add_handler(CallbackQueryHandler(cb_inv_tab,     pattern=r"^inv_tab:"))
     app.add_handler(CallbackQueryHandler(cb_inv_item,    pattern=r"^inv_item:"))
     app.add_handler(CallbackQueryHandler(cb_inv_equip,   pattern=r"^inv_equip:"))
