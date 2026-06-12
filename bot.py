@@ -46,6 +46,7 @@ from handlers.info             import register_info_handlers
 from handlers.tutorial         import register_tutorial_handlers
 from handlers.gringotts        import register_gringotts_handlers
 from handlers.forge            import register_forge_handlers
+from handlers.navigation       import register_navigation_handlers
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -141,6 +142,7 @@ def main():
     register_tutorial_handlers(app)
     register_gringotts_handlers(app)
     register_forge_handlers(app)
+    register_navigation_handlers(app)
 
     logger.info("Hogwarts Bot запускается...")
     app.run_polling(drop_pending_updates=True)

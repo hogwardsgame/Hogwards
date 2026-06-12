@@ -606,30 +606,41 @@ def get_spells_count(user_id: int) -> int:
 
 def add_xp(user_id: int, xp: int):
     """Add XP and handle level ups. Returns (new_level, leveled_up)."""
-    from config import XP_PER_LEVEL_BASE, XP_LEVEL_MULT
+    from config import XP_CURVE_BASE, XP_CURVE_POWER, XP_CURVE_LINEAR, LEVEL_UP_GAINS
     user = get_user(user_id)
     new_xp = user["xp"] + xp
     level = user["level"]
     leveled_up = False
+    levels_gained = 0
 
     while True:
-        needed = int(XP_PER_LEVEL_BASE * level * (XP_LEVEL_MULT ** (level - 1)))
+        needed = int(XP_CURVE_BASE * (level ** XP_CURVE_POWER) + XP_CURVE_LINEAR * level)
         if new_xp >= needed:
             new_xp -= needed
             level += 1
+            levels_gained += 1
             leveled_up = True
         else:
             break
 
     with get_conn() as conn:
         if leveled_up:
+            g = LEVEL_UP_GAINS
+            hp_gain   = g["max_hp"]   * levels_gained
+            mana_gain = g["max_mana"] * levels_gained
+            atk_gain  = g["attack"]   * levels_gained
+            def_gain  = g["defense"]  * levels_gained
+            spd_gain  = g.get("speed", 1) * levels_gained
             execute(conn, """
                 UPDATE users SET xp = %s, level = %s,
-                    max_hp = max_hp + 8, hp = LEAST(hp + 8, max_hp + 8),
-                    max_mana = max_mana + 5, mana = LEAST(mana + 5, max_mana + 5),
-                    attack = attack + 2, defense = defense + 1
+                    max_hp = max_hp + %s, hp = LEAST(hp + %s, max_hp + %s),
+                    max_mana = max_mana + %s, mana = LEAST(mana + %s, max_mana + %s),
+                    attack = attack + %s, defense = defense + %s, speed = speed + %s
                 WHERE user_id = %s
-            """, new_xp, level, user_id)
+            """, new_xp, level,
+                 hp_gain, hp_gain, hp_gain,
+                 mana_gain, mana_gain, mana_gain,
+                 atk_gain, def_gain, spd_gain, user_id)
         else:
             execute(conn, "UPDATE users SET xp = %s WHERE user_id = %s", new_xp, user_id)
 

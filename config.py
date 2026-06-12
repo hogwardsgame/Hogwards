@@ -53,54 +53,89 @@ HOUSE_SPELLS = {
 }
 
 # ── СТАРТОВЫЕ ХАРАКТЕРИСТИКИ ─────────────────────────────────────────
-STARTER_GOLD = 0
+STARTER_GOLD = 150   # хватает на первое зелье/предмет, мягкий старт
 STARTER_MANA = 50
 STARTER_HP   = 100
 
 # ── ЗОЛОТО И НАГРАДЫ ───────────────────────────────────────────────────
 GOLD_REWARDS = {
-    "pve_kill_min":    3,
-    "pve_kill_max":    15,
-    "pve_boss_min":    50,
-    "pve_boss_max":    200,
-    "pvp_win":         20,
-    "pvp_lose":        3,
-    "lesson_correct":  8,
-    "lesson_wrong":    1,
-    "quest_daily":     25,
-    "quest_weekly":    100,
-    "world_boss_min":  80,
-    "world_boss_max":  300,
+    "pve_kill_min":    5,
+    "pve_kill_max":    18,
+    "pve_boss_min":    60,
+    "pve_boss_max":    220,
+    "pvp_win":         25,
+    "pvp_lose":        5,
+    "lesson_correct":  12,
+    "lesson_wrong":    2,
+    "quest_daily":     35,
+    "quest_weekly":    150,
+    "world_boss_min":  100,
+    "world_boss_max":  350,
+    "forest_min":      20,
+    "forest_max":      90,
 }
 
 SHOP_PRICES = {
-    "hp_potion_small":   40,
-    "hp_potion_medium":  90,
-    "hp_potion_large":   200,
-    "mana_potion":       60,
-    "strength_potion":   120,
-    "luck_potion":       150,
+    "hp_potion_small":   50,
+    "hp_potion_medium":  120,
+    "hp_potion_large":   280,
+    "mana_potion":       80,
+    "strength_potion":   200,
+    "luck_potion":       250,
+    "shield_potion":     180,
+}
+
+# Базовые цены снаряжения по редкости (используются в shop/forge/black_market)
+RARITY_BASE_PRICE = {
+    "common":     60,
+    "uncommon":   150,
+    "rare":       400,
+    "very_rare":  900,
+    "epic":       2000,
+    "legendary":  5000,
+    "mythical":   12000,
+    "abyssal":    30000,
 }
 
 # ── XP НА ПРОКАЧКУ ─────────────────────────────────────────────────────
-XP_PER_LEVEL_BASE = 1200
-XP_LEVEL_MULT     = 1.20
+# Новая сбалансированная кривая: мягкий старт, плавный рост.
+# Формула в database.add_xp / helpers.xp_needed_for_level:
+#   needed = int(XP_CURVE_BASE * level**XP_CURVE_POWER + XP_CURVE_LINEAR * level)
+# ур1→2 ≈ 150 XP, ур10→11 ≈ 3700, ур20→21 ≈ 10000, ур30→31 ≈ 18000
+XP_CURVE_BASE   = 100
+XP_CURVE_POWER  = 1.5
+XP_CURVE_LINEAR = 50
+
+# Прирост характеристик за уровень (применяется в database.add_xp)
+LEVEL_UP_GAINS = {
+    "max_hp":   12,
+    "max_mana": 6,
+    "attack":   2,
+    "defense":  1,
+    "speed":    1,
+}
+
+# Оставлено для обратной совместимости (старый код может ссылаться)
+XP_PER_LEVEL_BASE = 100
+XP_LEVEL_MULT     = 1.15
 
 XP_REWARDS = {
-    "pve_kill_min":    12,
-    "pve_kill_max":    35,
-    "pve_boss_min":    150,
-    "pve_boss_max":    400,
-    "pvp_win":         50,
-    "pvp_lose":        10,
-    "lesson_correct":  30,
-    "lesson_wrong":    5,
-    "quest_daily":     60,
-    "quest_weekly":    250,
+    "pve_kill_min":    15,
+    "pve_kill_max":    40,
+    "pve_boss_min":    120,
+    "pve_boss_max":    350,
+    "pvp_win":         60,
+    "pvp_lose":        15,
+    "lesson_correct":  40,
+    "lesson_wrong":    8,
+    "quest_daily":     80,
+    "quest_weekly":    300,
     "world_boss_min":  200,
     "world_boss_max":  600,
-    "achievement":     100,
-    "combo_spell":     20,
+    "achievement":     120,
+    "combo_spell":     25,
+    "forest_min":      40,
+    "forest_max":      120,
 }
 
 # ── ЕЖЕДНЕВНЫЕ ЛИМИТЫ ──────────────────────────────────────────────────
