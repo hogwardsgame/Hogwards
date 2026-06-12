@@ -373,6 +373,98 @@ INGREDIENTS = {
 }
 ITEMS.update(INGREDIENTS)
 
+# ─── ОСОБЫЕ / ЛЕГЕНДАРНЫЕ ПРЕДМЕТЫ (лес, чёрный рынок, крестражи) ──────────────
+# Названия на 5 языках — чтобы игроки видели читаемое имя, а не item_id.
+SPECIAL_ITEMS = {
+    "basilisk_fang": {
+        "id": "basilisk_fang", "type": "key", "rarity": "epic", "emoji": "🦷",
+        "name": {"ru": "Клык василиска", "en": "Basilisk Fang", "es": "Colmillo de basilisco",
+                 "de": "Basilisken-Reißzahn", "pt": "Presa de basilisco"},
+        "desc_ru": "Единственное, что уничтожает крестражи. Ищи в Запретном лесу или у боссов.",
+        "desc_en": "The only thing that destroys Horcruxes. Found in the Forbidden Forest or from bosses.",
+        "desc_es": "Lo único que destruye Horrocruxes. Búscalo en el Bosque Prohibido o en jefes.",
+        "desc_de": "Das Einzige, was Horkruxe zerstört. Im Verbotenen Wald oder bei Bossen zu finden.",
+        "desc_pt": "A única coisa que destrói Horcruxes. Procure na Floresta Proibida ou em chefes.",
+    },
+    "cloak_invisibility": {
+        "id": "cloak_invisibility", "type": "equipment", "slot": "robe", "rarity": "legendary", "emoji": "🧥",
+        "name": {"ru": "Мантия-невидимка", "en": "Cloak of Invisibility", "es": "Capa de invisibilidad",
+                 "de": "Tarnumhang", "pt": "Capa da invisibilidade"},
+        "stat": "defense", "stat_value": 45,
+        "desc_ru": "Один из Даров Смерти. Скрывает от любых глаз. +45 к защите.",
+        "desc_en": "One of the Deathly Hallows. Hides you from all eyes. +45 defense.",
+        "desc_es": "Una de las Reliquias de la Muerte. Te oculta de toda mirada. +45 defensa.",
+        "desc_de": "Eines der Heiligtümer des Todes. Verbirgt dich vor allen Augen. +45 Verteidigung.",
+        "desc_pt": "Uma das Relíquias da Morte. Esconde de todos os olhos. +45 defesa.",
+    },
+    "marauders_map": {
+        "id": "marauders_map", "type": "key", "rarity": "rare", "emoji": "🗺️",
+        "name": {"ru": "Карта Мародёров", "en": "Marauder's Map", "es": "Mapa del Merodeador",
+                 "de": "Karte des Rumtreibers", "pt": "Mapa do Maroto"},
+        "desc_ru": "Показывает всех в Хогвартсе. «Торжественно клянусь, что замышляю шалость».",
+        "desc_en": "Shows everyone in Hogwarts. 'I solemnly swear that I am up to no good.'",
+        "desc_es": "Muestra a todos en Hogwarts. 'Juro solemnemente que mis intenciones no son buenas.'",
+        "desc_de": "Zeigt jeden in Hogwarts. 'Ich schwöre feierlich, ich bin ein Tunichtgut.'",
+        "desc_pt": "Mostra todos em Hogwarts. 'Juro solenemente não fazer nada de bom.'",
+    },
+    "time_turner": {
+        "id": "time_turner", "type": "key", "rarity": "mythical", "emoji": "⏳",
+        "name": {"ru": "Маховик времени", "en": "Time-Turner", "es": "Giratiempo",
+                 "de": "Zeitumkehrer", "pt": "Vira-Tempo"},
+        "desc_ru": "Позволяет вернуться в прошлое. Чрезвычайно редкий артефакт Министерства.",
+        "desc_en": "Lets you travel back in time. An extremely rare Ministry artefact.",
+        "desc_es": "Permite viajar al pasado. Un artefacto del Ministerio extremadamente raro.",
+        "desc_de": "Ermöglicht Zeitreisen in die Vergangenheit. Ein extrem seltenes Ministeriums-Artefakt.",
+        "desc_pt": "Permite voltar no tempo. Um artefato raríssimo do Ministério.",
+    },
+    "felix_felicis": {
+        "id": "felix_felicis", "type": "consumable", "rarity": "legendary", "emoji": "🍀",
+        "name": {"ru": "Феликс Фелицис", "en": "Felix Felicis", "es": "Felix Felicis",
+                 "de": "Felix Felicis", "pt": "Felix Felicis"},
+        "effect": "luck_mult", "value": 0.5, "duration": 3600,
+        "desc_ru": "Жидкая удача. +50% к удаче на 1 час. Очень редкое зелье.",
+        "desc_en": "Liquid luck. +50% luck for 1 hour. A very rare potion.",
+        "desc_es": "Suerte líquida. +50% de suerte durante 1 hora. Una poción muy rara.",
+        "desc_de": "Flüssiges Glück. +50% Glück für 1 Stunde. Ein sehr seltener Trank.",
+        "desc_pt": "Sorte líquida. +50% de sorte por 1 hora. Uma poção muito rara.",
+    },
+    "polyjuice_ready": {
+        "id": "polyjuice_ready", "type": "consumable", "rarity": "rare", "emoji": "🧪",
+        "name": {"ru": "Оборотное зелье (готовое)", "en": "Polyjuice Potion (ready)",
+                 "es": "Poción multijugos (lista)", "de": "Vielsafttrank (fertig)",
+                 "pt": "Poção polissuco (pronta)"},
+        "effect": "xp", "value": 100,
+        "desc_ru": "Готовое оборотное зелье. Даёт +100 опыта при использовании.",
+        "desc_en": "Ready-made Polyjuice Potion. Grants +100 XP when used.",
+        "desc_es": "Poción multijugos lista. Otorga +100 de experiencia al usarla.",
+        "desc_de": "Fertiger Vielsafttrank. Gibt +100 EP bei Benutzung.",
+        "desc_pt": "Poção polissuco pronta. Concede +100 de XP ao usar.",
+    },
+    "dragon_heartstring": {
+        "id": "dragon_heartstring", "type": "ingredient", "rarity": "very_rare", "emoji": "🐉",
+        "name": {"ru": "Струна сердца дракона", "en": "Dragon Heartstring",
+                 "es": "Fibra de corazón de dragón", "de": "Drachenherzfaser",
+                 "pt": "Corda de coração de dragão"},
+        "desc_ru": "Мощный компонент для палочек и зелий. Ищи в Запретном лесу.",
+        "desc_en": "A powerful component for wands and potions. Found in the Forbidden Forest.",
+        "desc_es": "Un componente poderoso para varitas y pociones. En el Bosque Prohibido.",
+        "desc_de": "Eine mächtige Komponente für Zauberstäbe und Tränke. Im Verbotenen Wald.",
+        "desc_pt": "Um componente poderoso para varinhas e poções. Na Floresta Proibida.",
+    },
+    "dark_arts_tome": {
+        "id": "dark_arts_tome", "type": "key", "rarity": "epic", "emoji": "📕",
+        "name": {"ru": "Том тёмных искусств", "en": "Dark Arts Tome",
+                 "es": "Tomo de artes oscuras", "de": "Foliant der dunklen Künste",
+                 "pt": "Tomo das artes das trevas"},
+        "desc_ru": "Запрещённая книга тёмной магии. Хранится под стеклом в Чёрном рынке.",
+        "desc_en": "A forbidden book of dark magic. Kept under glass at the Black Market.",
+        "desc_es": "Un libro prohibido de magia oscura. Guardado bajo vidrio en el Mercado Negro.",
+        "desc_de": "Ein verbotenes Buch dunkler Magie. Unter Glas im Schwarzmarkt aufbewahrt.",
+        "desc_pt": "Um livro proibido de magia das trevas. Guardado sob vidro no Mercado Negro.",
+    },
+}
+ITEMS.update(SPECIAL_ITEMS)
+
 # ─── КОСМЕТИКА ─────────────────────────────────────────────────────────────────
 COSMETICS = {
     "frame_gryffindor": {
