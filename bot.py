@@ -21,7 +21,6 @@ from handlers.lessons         import register_lessons_handlers
 from handlers.shop            import register_shop_handlers
 from handlers.inventory       import register_inventory_handlers
 from handlers.auction         import register_auction_handlers
-from handlers.quests          import register_quests_handlers
 from handlers.events          import register_events_handlers
 from handlers.house_points    import register_house_points_handlers
 from handlers.room_of_requirement import register_room_handlers
@@ -49,6 +48,9 @@ from handlers.forge            import register_forge_handlers
 from handlers.navigation       import register_navigation_handlers
 from handlers.ambush           import register_ambush_handlers
 from handlers.collections     import register_collections_handlers
+from handlers.duel_league     import register_duel_league_handlers
+from handlers.my_room         import register_my_room_handlers
+from handlers.wandcraft       import register_wandcraft_handlers
 from handlers.admin_panel      import register_admin_panel_handlers
 
 logging.basicConfig(
@@ -88,6 +90,13 @@ async def post_init(app):
     logger.info(f"Кэш языков загружен для {len(rows)} пользователей.")
     setup_scheduler(bot=app.bot)
 
+    # Подгрузить созданные игроками палочки в каталог предметов
+    try:
+        from handlers.wandcraft import load_crafted_wands_into_items
+        await loop.run_in_executor(db_executor, load_crafted_wands_into_items)
+    except Exception as e:
+        logger.warning("crafted wands load: %s", e)
+
     # Подключить уведомления к планировщику
     try:
         from handlers.notifications import setup_notification_jobs
@@ -122,7 +131,6 @@ def main():
     register_shop_handlers(app)
     register_inventory_handlers(app)
     register_auction_handlers(app)
-    register_quests_handlers(app)
     register_events_handlers(app)
     register_house_points_handlers(app)
     register_room_handlers(app)
@@ -150,6 +158,9 @@ def main():
     register_navigation_handlers(app)
     register_ambush_handlers(app)
     register_collections_handlers(app)
+    register_duel_league_handlers(app)
+    register_my_room_handlers(app)
+    register_wandcraft_handlers(app)
     register_admin_panel_handlers(app)
 
     # ── Глобальный трекер активности ─────────────────────────────────────────
