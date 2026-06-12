@@ -675,32 +675,36 @@ def increment_daily(user_id: int, activity: str):
 
 
 def get_leaderboard(category: str = "level", limit: int = 10):
-    """Многокатегорийный рейтинг."""
+    """Многокатегорийный рейтинг. Администраторы исключены из всех топов."""
+    from config import ADMIN_IDS
+    exclude = list(ADMIN_IDS) if ADMIN_IDS else [0]
     with get_conn() as conn:
         if category == "level":
-            from config import ADMIN_IDS
-            exclude = list(ADMIN_IDS) if ADMIN_IDS else [0]
             return fetchall(conn,
-                "SELECT wizard_name, house, level, xp FROM users WHERE user_id != ALL(%s) ORDER BY level DESC, xp DESC LIMIT %s",
+                "SELECT wizard_name, house, level, xp FROM users "
+                "WHERE user_id != ALL(%s) AND COALESCE(is_banned, FALSE) = FALSE "
+                "ORDER BY level DESC, xp DESC LIMIT %s",
                 exclude, limit)
         elif category == "gold":
-            from config import ADMIN_IDS
-            exclude = tuple(ADMIN_IDS) if ADMIN_IDS else (0,)
             return fetchall(conn,
-                "SELECT wizard_name, house, gold FROM users WHERE user_id != ALL(%s) ORDER BY gold DESC LIMIT %s",
-                list(exclude), limit)
+                "SELECT wizard_name, house, gold FROM users "
+                "WHERE user_id != ALL(%s) AND COALESCE(is_banned, FALSE) = FALSE "
+                "ORDER BY gold DESC LIMIT %s",
+                exclude, limit)
         elif category == "pvp":
             return fetchall(conn, """
                 SELECT u.wizard_name, u.house, s.pvp_wins
                 FROM users u JOIN user_stats s ON u.user_id = s.user_id
+                WHERE u.user_id != ALL(%s) AND COALESCE(u.is_banned, FALSE) = FALSE
                 ORDER BY s.pvp_wins DESC LIMIT %s
-            """, limit)
+            """, exclude, limit)
         elif category == "pve":
             return fetchall(conn, """
                 SELECT u.wizard_name, u.house, s.pve_kills
                 FROM users u JOIN user_stats s ON u.user_id = s.user_id
+                WHERE u.user_id != ALL(%s) AND COALESCE(u.is_banned, FALSE) = FALSE
                 ORDER BY s.pve_kills DESC LIMIT %s
-            """, limit)
+            """, exclude, limit)
         else:
             return []
 
@@ -801,14 +805,17 @@ def record_world_boss_damage(world_boss_id: int, user_id: int, damage: int):
 
 
 def get_world_boss_top(world_boss_id: int, limit: int = 10):
+    from config import ADMIN_IDS
+    exclude = list(ADMIN_IDS) if ADMIN_IDS else [0]
     with get_conn() as conn:
         return fetchall(conn, """
-            SELECT u.wizard_name, u.house, d.damage, d.hits
+            SELECT u.wizard_name, u.house, d.damage, d.hits, d.user_id
             FROM world_boss_damage d
             JOIN users u ON d.user_id = u.user_id
             WHERE d.world_boss_id = %s
+              AND d.user_id != ALL(%s)
             ORDER BY d.damage DESC LIMIT %s
-        """, world_boss_id, limit)
+        """, world_boss_id, exclude, limit)
 
 
 # ─── Зельеварение ──────────────────────────────────────────────────────────────
