@@ -66,15 +66,19 @@ async def cb_war_top(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    from config import ADMIN_IDS
+    admin_ids = list(ADMIN_IDS) if ADMIN_IDS else [0]
+
     with get_conn() as conn:
         rows = fetchall(conn, """
             SELECT u.wizard_name, u.house, SUM(l.points) as total
             FROM house_points_log l
             JOIN users u ON l.user_id = u.user_id
+            WHERE l.user_id != ALL(%s)
             GROUP BY u.wizard_name, u.house
             ORDER BY total DESC
             LIMIT 10
-        """)
+        """, admin_ids)
 
     medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
     lines  = ["📊 *Топ вкладчиков в Кубок*\n"]

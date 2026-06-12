@@ -71,15 +71,16 @@ async def cmd_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ── Статистика ────────────────────────────────────────────────────────────────
 @admin_only
 async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    admin_ids = list(ADMIN_IDS) if ADMIN_IDS else [0]
     with get_conn() as conn:
-        total       = fetchval(conn, "SELECT COUNT(*) FROM users")
-        today       = fetchval(conn, "SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE")
-        banned      = fetchval(conn, "SELECT COUNT(*) FROM users WHERE is_banned = TRUE")
-        houses      = fetchall(conn, "SELECT house, COUNT(*) as cnt FROM users GROUP BY house ORDER BY cnt DESC")
+        total       = fetchval(conn, "SELECT COUNT(*) FROM users WHERE user_id != ALL(%s)", admin_ids)
+        today       = fetchval(conn, "SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE AND user_id != ALL(%s)", admin_ids)
+        banned      = fetchval(conn, "SELECT COUNT(*) FROM users WHERE is_banned = TRUE AND user_id != ALL(%s)", admin_ids)
+        houses      = fetchall(conn, "SELECT house, COUNT(*) as cnt FROM users WHERE user_id != ALL(%s) GROUP BY house ORDER BY cnt DESC", admin_ids)
         pvp_today   = fetchval(conn, "SELECT COUNT(*) FROM duels WHERE started_at::date = CURRENT_DATE")
         pve_today   = fetchval(conn, "SELECT COUNT(*) FROM pve_sessions WHERE created_at::date = CURRENT_DATE")
-        total_gold  = fetchval(conn, "SELECT SUM(gold) FROM users")
-        avg_level   = fetchval(conn, "SELECT AVG(level)::numeric(5,1) FROM users")
+        total_gold  = fetchval(conn, "SELECT SUM(gold) FROM users WHERE user_id != ALL(%s)", admin_ids)
+        avg_level   = fetchval(conn, "SELECT AVG(level)::numeric(5,1) FROM users WHERE user_id != ALL(%s)", admin_ids)
         wb_active   = fetchval(conn, "SELECT COUNT(*) FROM world_bosses WHERE status = 'active'")
         squads      = fetchval(conn, "SELECT COUNT(*) FROM squads")
         active_lots = fetchval(conn, "SELECT COUNT(*) FROM auction_lots WHERE status = 'active'")
@@ -394,11 +395,12 @@ async def cmd_add_house_pts(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def cmd_economy_info(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    admin_ids = list(ADMIN_IDS) if ADMIN_IDS else [0]
     with get_conn() as conn:
-        total_gold = fetchval(conn, "SELECT SUM(gold) FROM users") or 0
-        max_gold   = fetchval(conn, "SELECT MAX(gold) FROM users") or 0
-        avg_gold   = fetchval(conn, "SELECT AVG(gold)::numeric(10,0) FROM users") or 0
-        rich_players = fetchall(conn, "SELECT wizard_name, gold FROM users ORDER BY gold DESC LIMIT 5")
+        total_gold   = fetchval(conn, "SELECT SUM(gold) FROM users WHERE user_id != ALL(%s)", admin_ids) or 0
+        max_gold     = fetchval(conn, "SELECT MAX(gold) FROM users WHERE user_id != ALL(%s)", admin_ids) or 0
+        avg_gold     = fetchval(conn, "SELECT AVG(gold)::numeric(10,0) FROM users WHERE user_id != ALL(%s)", admin_ids) or 0
+        rich_players = fetchall(conn, "SELECT wizard_name, gold FROM users WHERE user_id != ALL(%s) ORDER BY gold DESC LIMIT 5", admin_ids)
         trades_today = fetchval(conn, "SELECT COUNT(*) FROM trade_log WHERE created_at::date = CURRENT_DATE") or 0
         trade_vol    = fetchval(conn, "SELECT SUM(amount) FROM trade_log WHERE created_at::date = CURRENT_DATE") or 0
 

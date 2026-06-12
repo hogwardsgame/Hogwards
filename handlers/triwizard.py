@@ -80,6 +80,8 @@ def _get_participant(user_id: int) -> dict | None:
         return None
 
 def _leaderboard_text() -> str:
+    from config import ADMIN_IDS
+    admin_ids = list(ADMIN_IDS) if ADMIN_IDS else [0]
     try:
         with get_conn() as conn:
             rows = fetchall(conn, """
@@ -87,8 +89,9 @@ def _leaderboard_text() -> str:
                        tp.trial1_done, tp.trial2_done, tp.trial3_done
                 FROM triwizard_participants tp
                 JOIN users u ON u.user_id = tp.user_id
+                WHERE tp.user_id != ALL(%s)
                 ORDER BY tp.total_score DESC LIMIT 10
-            """)
+            """, admin_ids)
     except Exception:
         return "_Нет участников пока._"
     if not rows:

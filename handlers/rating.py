@@ -27,6 +27,8 @@ def _tab_keyboard(active: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 def _get_leaderboard_by(category: str, limit: int = 10) -> list:
+    from config import ADMIN_IDS
+    admin_ids = list(ADMIN_IDS) if ADMIN_IDS else [0]
     try:
         with get_conn() as conn:
             if category == "xp_week":
@@ -36,9 +38,10 @@ def _get_leaderboard_by(category: str, limit: int = 10) -> list:
                     FROM users u
                     LEFT JOIN weekly_stats ws ON ws.user_id = u.user_id
                     WHERE COALESCE(u.is_banned, FALSE) = FALSE
+                      AND u.user_id != ALL(%s)
                     ORDER BY score DESC NULLS LAST
                     LIMIT %s
-                """, limit)
+                """, admin_ids, limit)
             elif category == "pvp":
                 return fetchall(conn, """
                     SELECT u.wizard_name, u.house, u.level,
@@ -46,9 +49,10 @@ def _get_leaderboard_by(category: str, limit: int = 10) -> list:
                     FROM users u
                     LEFT JOIN user_stats us ON us.user_id = u.user_id
                     WHERE COALESCE(u.is_banned, FALSE) = FALSE
+                      AND u.user_id != ALL(%s)
                     ORDER BY score DESC NULLS LAST
                     LIMIT %s
-                """, limit)
+                """, admin_ids, limit)
             elif category == "pve":
                 return fetchall(conn, """
                     SELECT u.wizard_name, u.house, u.level,
@@ -56,25 +60,28 @@ def _get_leaderboard_by(category: str, limit: int = 10) -> list:
                     FROM users u
                     LEFT JOIN user_stats us ON us.user_id = u.user_id
                     WHERE COALESCE(u.is_banned, FALSE) = FALSE
+                      AND u.user_id != ALL(%s)
                     ORDER BY score DESC NULLS LAST
                     LIMIT %s
-                """, limit)
+                """, admin_ids, limit)
             elif category == "gold":
                 return fetchall(conn, """
                     SELECT wizard_name, house, level, gold as score
                     FROM users
                     WHERE COALESCE(is_banned, FALSE) = FALSE
+                      AND user_id != ALL(%s)
                     ORDER BY gold DESC NULLS LAST
                     LIMIT %s
-                """, limit)
+                """, admin_ids, limit)
             else:  # level
                 return fetchall(conn, """
                     SELECT wizard_name, house, level, xp as score
                     FROM users
                     WHERE COALESCE(is_banned, FALSE) = FALSE
+                      AND user_id != ALL(%s)
                     ORDER BY level DESC, xp DESC
                     LIMIT %s
-                """, limit)
+                """, admin_ids, limit)
     except Exception:
         return []
 
