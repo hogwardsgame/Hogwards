@@ -382,6 +382,34 @@ async def handle_equip_best(request):
         return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
 
 
+async def handle_battle(request):
+    """PvE-бой: action = start|cast|state|flee."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "state")
+
+    import webapp_battle as wb
+    try:
+        if action == "start":
+            return _cors(web.json_response(wb.start_battle(user_id)))
+        elif action == "cast":
+            spell_id = body.get("spell", "")
+            return _cors(web.json_response(wb.cast(user_id, spell_id)))
+        elif action == "flee":
+            return _cors(web.json_response(wb.flee(user_id)))
+        else:
+            return _cors(web.json_response(wb.get_state(user_id)))
+    except Exception as e:
+        logger.warning("battle %s: %s", action, e)
+        return _cors(web.json_response({"active": False, "error": "server"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -400,6 +428,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/claimdaily", handle_options)
     app.router.add_post("/api/equipbest", handle_equip_best)
     app.router.add_options("/api/equipbest", handle_options)
+    app.router.add_post("/api/battle", handle_battle)
+    app.router.add_options("/api/battle", handle_options)
     return app
 
 
