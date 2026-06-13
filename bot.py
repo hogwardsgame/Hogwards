@@ -53,6 +53,7 @@ from handlers.my_room         import register_my_room_handlers
 from handlers.wandcraft       import register_wandcraft_handlers
 from handlers.images         import register_images_handlers
 from handlers.team_battle     import register_team_battle_handlers
+from handlers.miniapp        import register_miniapp_handlers
 from handlers.admin_panel      import register_admin_panel_handlers
 
 logging.basicConfig(
@@ -165,6 +166,7 @@ def main():
     register_wandcraft_handlers(app)
     register_images_handlers(app)
     register_team_battle_handlers(app)
+    register_miniapp_handlers(app)
     register_admin_panel_handlers(app)
 
     # ── Глобальный трекер активности ─────────────────────────────────────────
