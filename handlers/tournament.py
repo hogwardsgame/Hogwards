@@ -13,7 +13,7 @@ from database import (
     get_user, user_exists, add_xp, add_gold, add_house_points,
     get_conn, execute, fetchrow, fetchall, fetchval,
 )
-from game.battle_engine import fresh_status, resolve_turn, tick_status, determine_turn_order
+from game.battle_engine import fresh_status, resolve_turn, tick_status, determine_turn_order, HOUSE_EMOJI
 from game.spells import SPELLS
 from utils.i18n import t
 from utils.helpers import md_escape
@@ -270,17 +270,36 @@ async def _start_tournament(ctx, registrant_ids: list | None = None):
     remaining = list(players)
     round_num = 1
 
+    # Названия раундов по числу участников
+    def _round_name(n):
+        return {2: "🏆 ФИНАЛ", 4: "🥈 Полуфинал", 8: "🥉 Четвертьфинал"}.get(n, f"Раунд {round_num}")
+
     while len(remaining) > 1:
         random.shuffle(remaining)
         next_round = []
-        round_results = [f"⚔️ *Раунд {round_num}*"]
+        rname = _round_name(len(remaining))
+        round_results = [f"━━━━━━━━━━━━━━━━━━━━\n{rname}\n━━━━━━━━━━━━━━━━━━━━"]
 
+        # Визуальная сетка пар
         pairs = [(remaining[i], remaining[i+1]) for i in range(0, len(remaining)-1, 2)]
+        bracket_lines = ["📋 *Сетка раунда:*"]
+        for idx, (a, b) in enumerate(pairs, 1):
+            bracket_lines.append(
+                f"  {idx}. {HOUSE_EMOJI.get(a.get('house'),'🏠')} {md_escape(a['wizard_name'])} "
+                f"⚔️ {HOUSE_EMOJI.get(b.get('house'),'🏠')} {md_escape(b['wizard_name'])}"
+            )
         if len(remaining) % 2 == 1:
-            # Нечётный — автопроход
             bye = remaining[-1]
             next_round.append(bye)
-            round_results.append(f"🎯 {md_escape(bye['wizard_name'])} — проходит автоматически")
+            bracket_lines.append(f"  🎯 {md_escape(bye['wizard_name'])} — проходит автоматически")
+        # Шлём сетку всем участникам
+        bracket_text = "\n".join(bracket_lines)
+        for p in remaining:
+            try:
+                await ctx.bot.send_message(p["user_id"], bracket_text, parse_mode="Markdown")
+            except Exception:
+                pass
+        await asyncio.sleep(2)
 
         for a, b in pairs:
             result = _simulate_duel(a, b)

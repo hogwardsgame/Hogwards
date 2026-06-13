@@ -39,6 +39,7 @@ CATEGORIES = {
         "items": [
             ("duel",       "⚔️ Дуэль",            1),
             ("league",     "🎖️ Дуэльная лига",   1),
+            ("teambattle", "🛡️ Бой отрядов 3×3",  1),
             ("tournament", "🏆 Турнир",           1),
             ("triwizard",  "🏅 Турнир Трёх",      5),
         ],
@@ -102,6 +103,7 @@ COMMAND_MAP = {
     "horcruxes":   ("handlers.horcruxes",        "cmd_horcruxes"),
     "collections": ("handlers.collections",      "cmd_collections"),
     "league":      ("handlers.duel_league",       "cmd_league"),
+    "teambattle":  ("handlers.team_battle",       "cmd_team_battle"),
     "myroom":      ("handlers.my_room",           "cmd_my_room"),
     "wandcraft":   ("handlers.wandcraft",         "cmd_wandcraft"),
 }

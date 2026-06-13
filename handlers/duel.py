@@ -25,7 +25,7 @@ from utils.helpers import house_emoji
 from game.battle_engine import (
     fresh_status, tick_status, resolve_turn, determine_turn_order,
     format_pvp_panel, format_battle_status, can_cast_any, MANA_REGEN_PER_TURN,
-    COMBO_SPELLS, HOUSE_EMOJI,
+    COMBO_SPELLS, HOUSE_EMOJI, element_badge, spell_element, ELEMENTS,
 )
 from game.spells import get_spell, spell_display_name, SPELLS, RARITY_EMOJI
 from config import DAILY_LIMITS, DUEL_TIMEOUT_SECONDS, DUEL_INVITE_TIMEOUT, MAX_LEVEL_DIFF_PVP, XP_REWARDS, GOLD_REWARDS, HOUSE_POINTS_REWARDS
@@ -42,7 +42,7 @@ def _get_next_duel_id() -> int:
 
 def _spells_keyboard(spell_ids: list[str], duel_id: int, actor: str, lang: str,
                      current_mana: int = 9999, prev_spell: str = None,
-                     ult_charge: int = 0) -> InlineKeyboardMarkup:
+                     ult_charge: int = 0, can_finish: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура заклинаний с предпросмотром урона/маны, комбо, защитой и ультимейтом."""
     buttons = []
     for sid in spell_ids[:8]:
@@ -63,17 +63,21 @@ def _spells_keyboard(spell_ids: list[str], duel_id: int, actor: str, lang: str,
         if mana > current_mana:
             label = f"🚫 {rarity_e}{name} 💧{mana}"
         else:
-            # Предпросмотр: урон/лечение + мана прямо на кнопке
+            # Предпросмотр: урон/лечение + мана + стихия прямо на кнопке
+            elem = element_badge(spell)
             stats = []
             if dmg:  stats.append(f"⚔️{dmg}")
             if heal: stats.append(f"💚{heal}")
             stats.append(f"💧{mana}")
-            label = f"{combo_mark}{rarity_e}{name} ({' '.join(stats)})"
+            label = f"{combo_mark}{elem}{rarity_e}{name} ({' '.join(stats)})"
         buttons.append([InlineKeyboardButton(label, callback_data=f"duel_cast:{duel_id}:{actor}:{sid}")])
 
     # Тактические кнопки: защита + ультимейт
     tactical = [InlineKeyboardButton("🛡️ Защита (+ману, -урон)", callback_data=f"duel_guard:{duel_id}:{actor}")]
     buttons.append(tactical)
+    # Финишер — доступен когда противник при смерти
+    if can_finish:
+        buttons.append([InlineKeyboardButton("☠️💀 ДОБИВАНИЕ! 💀☠️", callback_data=f"duel_finish:{duel_id}:{actor}")])
     if ult_charge >= 100:
         buttons.append([InlineKeyboardButton("⚡🔥 УЛЬТИМЕЙТ! 🔥⚡", callback_data=f"duel_ult:{duel_id}:{actor}")])
     return InlineKeyboardMarkup(buttons)
@@ -264,7 +268,14 @@ async def _send_turn(duel_id: int, ctx: ContextTypes.DEFAULT_TYPE, flash: str = 
     lang   = actor.get("lang", "ru")
     panel  = format_pvp_panel(state, flash=flash)
 
-    active_markup = _spells_keyboard(actor_spells, duel_id, actor_key, lang, cur_mana, prev_s, ult)
+    # Финишер доступен если HP противника < 25%
+    if actor_key == "player":
+        opp_hp, opp_max = state["opponent_hp"], state["opponent"]["max_hp"]
+    else:
+        opp_hp, opp_max = state["player_hp"], state["player"]["max_hp"]
+    can_finish = opp_max > 0 and (opp_hp / opp_max) < 0.25 and opp_hp > 0
+
+    active_markup = _spells_keyboard(actor_spells, duel_id, actor_key, lang, cur_mana, prev_s, ult, can_finish)
 
     # Редактируем сообщения ОБОИХ игроков (вместо новых)
     await _update_duel_messages(duel_id, ctx, panel, active_markup, actor["user_id"])
@@ -703,8 +714,11 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     lang  = attacker.get("lang", "ru")
     sname = spell_display_name(spell_id, lang)
     h     = HOUSE_EMOJI.get(attacker.get("house", ""), "🏠")
+    elem_badge = element_badge(spell)
 
-    log_entry = f"{h} {attacker['wizard_name']}: {sname} — {result['log']}"
+    log_entry = f"{h} {attacker['wizard_name']}: {elem_badge}{sname} — {result['log']}"
+    if result.get("element_label"):
+        log_entry += f"\n{result['element_label']}"
     if result.get("combo"):
         log_entry = f"✨🌟 КОМБО «{result['combo']['name']}»! 🌟✨\n" + log_entry
     if result.get("counter"):
@@ -714,20 +728,33 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state["log"].append(log_entry)
     state["log"] = state["log"][-5:]
 
-    # Анимация: показываем вспышку каста, затем результат
+    # Флеш-эффекты
     flash = ""
     if result.get("crit"):
         flash = "💥💥💥 КРИТИЧЕСКИЙ УДАР! 💥💥💥"
     elif result.get("combo"):
         flash = "✨🌟 КОМБО-ЗАКЛИНАНИЕ! 🌟✨"
+    elif result.get("element_label") == "💥 Преимущество стихии!":
+        flash = f"{elem_badge} СТИХИЙНОЕ ПРЕИМУЩЕСТВО! {elem_badge}"
 
     await query.answer()
 
-    # Короткая «анимация» каста на сообщении атакующего
+    # ── Живая анимация боя: несколько кадров через редактирование ─────────────
+    # Замах → вспышка заклинания → результат. Смотрится как мини-кат-сцена.
     try:
-        cast_msg = f"🪄✨ *{attacker['wizard_name']}* применяет *{sname}*..."
-        await query.edit_message_text(cast_msg, parse_mode="Markdown")
-        await asyncio.sleep(0.7)
+        frames = [
+            f"🧙 *{attacker['wizard_name']}* поднимает палочку...",
+            f"🪄✨ {elem_badge} Заклинание *{sname}* срывается с палочки!",
+        ]
+        if result.get("crit"):
+            frames.append("💥💥💥 *КРИТИЧЕСКИЙ УДАР!* 💥💥💥")
+        elif result.get("combo"):
+            frames.append(f"✨🌟 *КОМБО!* {result['combo']['name']} 🌟✨")
+        elif result.get("element_label") == "💥 Преимущество стихии!":
+            frames.append(f"{elem_badge} *СТИХИЙНОЕ ПРЕИМУЩЕСТВО!* {elem_badge}")
+        for fr in frames:
+            await query.edit_message_text(fr, parse_mode="Markdown")
+            await asyncio.sleep(0.55)
     except Exception:
         pass
 
@@ -851,6 +878,57 @@ async def cb_duel_ult(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await _send_turn(duel_id, ctx, flash=flash)
 
 
+async def cb_duel_finish(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Добивание — эпичный финишер когда противник при смерти (<25% HP)."""
+    query   = update.callback_query
+    parts   = query.data.split(":")
+    duel_id, actor_key = int(parts[1]), parts[2]
+    user_id = query.from_user.id
+
+    state = _active_duels.get(duel_id)
+    if not state:
+        await query.answer("Дуэль завершена.", show_alert=True)
+        return
+    if actor_key == "player" and user_id != state["player"]["user_id"]:
+        await query.answer("Сейчас не твой ход!", show_alert=True); return
+    if actor_key == "opponent" and user_id != state["opponent"]["user_id"]:
+        await query.answer("Сейчас не твой ход!", show_alert=True); return
+
+    if actor_key == "player":
+        attacker = state["player"]
+        def_hp = state["opponent_hp"]; def_max = state["opponent"]["max_hp"]
+    else:
+        attacker = state["opponent"]
+        def_hp = state["player_hp"]; def_max = state["player"]["max_hp"]
+
+    if def_max <= 0 or (def_hp / def_max) >= 0.25 or def_hp <= 0:
+        await query.answer("Добивание недоступно — противник ещё силён.", show_alert=True)
+        return
+
+    if state.get("timeout_task"):
+        state["timeout_task"].cancel()
+    await query.answer("☠️ ДОБИВАНИЕ!")
+
+    fin_frames = [
+        f"☠️ *{attacker['wizard_name']}* готовит смертельный удар...",
+        f"💀 Тёмная магия сгущается в воздухе...",
+        f"⚡💥 *ФИНАЛЬНОЕ ЗАКЛИНАНИЕ!* 💥⚡",
+    ]
+    try:
+        for fr in fin_frames:
+            await query.edit_message_text(fr, parse_mode="Markdown")
+            await asyncio.sleep(0.6)
+    except Exception:
+        pass
+
+    if actor_key == "player":
+        state["opponent_hp"] = 0
+    else:
+        state["player_hp"] = 0
+    state["log"].append(f"☠️💀 {attacker['wizard_name']} ДОБИВАЕТ противника эффектным финишером!")
+    await _end_duel(duel_id, attacker["user_id"], ctx)
+
+
 async def cb_duel_rematch(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Реванш — повторный вызов того же соперника одной кнопкой."""
     query   = update.callback_query
@@ -934,6 +1012,7 @@ def register_duel_handlers(app):
     app.add_handler(CallbackQueryHandler(cb_duel_cast,      pattern=r"^duel_cast:"))
     app.add_handler(CallbackQueryHandler(cb_duel_guard,     pattern=r"^duel_guard:"))
     app.add_handler(CallbackQueryHandler(cb_duel_ult,       pattern=r"^duel_ult:"))
+    app.add_handler(CallbackQueryHandler(cb_duel_finish,    pattern=r"^duel_finish:"))
     app.add_handler(CallbackQueryHandler(cb_duel_menu,      pattern=r"^duel_menu:"))
     app.add_handler(CallbackQueryHandler(cb_duel_challenge, pattern=r"^duel_challenge:"))
     app.add_handler(CallbackQueryHandler(cb_duel_rematch,   pattern=r"^duel_rematch:"))
