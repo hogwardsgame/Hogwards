@@ -151,6 +151,52 @@ async def handle_leaderboard(request):
     return _cors(web.json_response({"top": top}))
 
 
+async def handle_inventory(request):
+    """Инвентарь игрока — требует авторизации (initData)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+
+    user_id = int(tg_user["id"])
+    from database import get_conn, fetchall
+    from game.items import ITEMS, item_display_name
+
+    try:
+        with get_conn() as conn:
+            rows = fetchall(conn,
+                "SELECT item_id, quantity FROM inventory WHERE user_id=%s ORDER BY acquired_at DESC",
+                user_id)
+    except Exception as e:
+        logger.warning("inventory: %s", e)
+        rows = []
+
+    rarity_emoji = {
+        "common": "⚪", "uncommon": "🟢", "rare": "🔵", "very_rare": "🟣",
+        "epic": "🟠", "legendary": "🔴", "mythical": "🌟", "abyssal": "⚫",
+    }
+    items = []
+    for r in rows:
+        iid = r.get("item_id")
+        item = ITEMS.get(iid, {})
+        try:
+            nm = item_display_name(item, "ru") if item else iid
+        except Exception:
+            nm = iid
+        rarity = item.get("rarity", "common")
+        items.append({
+            "name":   nm,
+            "emoji":  item.get("emoji", "📦"),
+            "rarity": rarity_emoji.get(rarity, "⚪"),
+            "qty":    r.get("quantity", 1),
+        })
+    return _cors(web.json_response({"items": items}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -159,6 +205,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/profile", handle_options)
     app.router.add_get("/api/leaderboard", handle_leaderboard)
     app.router.add_options("/api/leaderboard", handle_options)
+    app.router.add_post("/api/inventory", handle_inventory)
+    app.router.add_options("/api/inventory", handle_options)
     return app
 
 
