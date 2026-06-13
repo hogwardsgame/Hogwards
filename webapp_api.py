@@ -320,6 +320,68 @@ async def handle_feed_pet(request):
         return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
 
 
+async def handle_claim_daily(request):
+    """Забрать ежедневный бонус. Требует авторизации."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+
+    user_id = int(tg_user["id"])
+    from datetime import datetime, timezone, timedelta
+    from database import get_conn, execute, add_gold, add_xp, add_item_to_inventory
+    try:
+        from handlers.daily_bonus import _get_login_streak, _get_login_reward, _ensure_tables
+        _ensure_tables()
+        today = datetime.now(timezone.utc).date()
+        streak_row = _get_login_streak(user_id)
+        last_login = streak_row.get("last_login")
+        if last_login == today:
+            return _cors(web.json_response({"ok": False, "msg": "Бонус за сегодня уже получен!"}))
+        yesterday = today - timedelta(days=1)
+        new_streak = (streak_row.get("streak", 0) + 1) if last_login == yesterday else 1
+        reward = _get_login_reward(new_streak)
+        if reward.get("gold"): add_gold(user_id, reward["gold"])
+        if reward.get("xp"):   add_xp(user_id, reward["xp"])
+        if reward.get("item"): add_item_to_inventory(user_id, reward["item"], 1)
+        with get_conn() as conn:
+            execute(conn, """
+                INSERT INTO login_streaks (user_id, streak, last_login, total_logins)
+                VALUES (%s, %s, %s, 1)
+                ON CONFLICT (user_id) DO UPDATE
+                SET streak=EXCLUDED.streak, last_login=EXCLUDED.last_login,
+                    total_logins=login_streaks.total_logins+1
+            """, user_id, new_streak, today)
+        return _cors(web.json_response({"ok": True, "msg": f"🎁 Получено: {reward['label']} (серия: {new_streak})"}))
+    except Exception as e:
+        logger.warning("claim_daily: %s", e)
+        return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
+
+
+async def handle_equip_best(request):
+    """Надеть лучшее снаряжение. Требует авторизации."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    try:
+        from handlers.inventory import auto_equip_best
+        changes = auto_equip_best(user_id)
+        if not changes:
+            return _cors(web.json_response({"ok": False, "msg": "Лучшее снаряжение уже надето (или его нет)"}))
+        return _cors(web.json_response({"ok": True, "msg": f"⚡ Надето лучшее в {len(changes)} слот(ов)!"}))
+    except Exception as e:
+        logger.warning("equip_best: %s", e)
+        return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -334,6 +396,10 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/housecup", handle_options)
     app.router.add_post("/api/feedpet", handle_feed_pet)
     app.router.add_options("/api/feedpet", handle_options)
+    app.router.add_post("/api/claimdaily", handle_claim_daily)
+    app.router.add_options("/api/claimdaily", handle_options)
+    app.router.add_post("/api/equipbest", handle_equip_best)
+    app.router.add_options("/api/equipbest", handle_options)
     return app
 
 
