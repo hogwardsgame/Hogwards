@@ -573,6 +573,49 @@ async def cb_inv_autoequip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def auto_equip_best(user_id: int) -> list[str]:
+    """Чистая логика автоэкипировки (без telegram). Возвращает список надетого.
+    Используется и из бота, и из Mini App API.
+    """
+    inv = _get_inventory(user_id)
+    best_per_slot: dict[str, tuple] = {}
+    for row in inv:
+        item = _safe_item(row["item_id"])
+        if item.get("type") != "equipment":
+            continue
+        slot = item.get("slot")
+        if not slot:
+            continue
+        bonus = item_stat_value(item)
+        if slot not in best_per_slot or bonus > best_per_slot[slot][1]:
+            best_per_slot[slot] = (row["item_id"], bonus, item.get("stat", ""))
+    if not best_per_slot:
+        return []
+    equipped_now = _get_equipped(user_id)
+    changes = []
+    with get_conn() as conn:
+        for slot, (item_id, bonus, stat) in best_per_slot.items():
+            current = equipped_now.get(slot)
+            if current and current.get("item_id") == item_id:
+                continue
+            if current:
+                old_item  = _safe_item(current["item_id"])
+                old_stat  = old_item.get("stat", "")
+                old_bonus = current.get("bonus") or 0
+                if old_stat and old_bonus:
+                    execute(conn, f"UPDATE users SET {old_stat}={old_stat}-%s WHERE user_id=%s", old_bonus, user_id)
+            execute(conn, """
+                INSERT INTO equipped_items (user_id, slot, item_id, bonus)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (user_id, slot) DO UPDATE SET item_id=EXCLUDED.item_id, bonus=EXCLUDED.bonus
+            """, user_id, slot, item_id, bonus)
+            if stat and bonus:
+                execute(conn, f"UPDATE users SET {stat}={stat}+%s WHERE user_id=%s", bonus, user_id)
+            item = _safe_item(item_id)
+            changes.append(f"{item.get('emoji','🔲')} {item_display_name(item,'ru')}")
+    return changes
+
+
 def register_inventory_handlers(app):
     app.add_handler(CommandHandler("inventory", cmd_inventory))
     app.add_handler(CallbackQueryHandler(cb_inv_main,      pattern=r"^inv_main$"))
