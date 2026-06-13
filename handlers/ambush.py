@@ -122,23 +122,38 @@ def _ambush_keyboard(ambush_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🏃 Убежать",     callback_data=f"ambush_flee:{ambush_id}")],
     ])
 
-async def send_ambushes(bot):
-    """Главная функция — рассылает атаки неактивным игрокам. Вызывается планировщиком."""
+async def send_ambushes(bot, force: bool = False, target_user_id: int = None):
+    """Главная функция — рассылает атаки неактивным игрокам. Вызывается планировщиком.
+
+    force=True — игнорировать окно времени и порог неактивности (для теста из админки).
+    target_user_id — атаковать конкретного игрока (для теста).
+    """
     _ensure_table()
 
-    # Только в активные часы UTC
-    hour = datetime.now(timezone.utc).hour
-    if not (ACTIVE_HOUR_START <= hour < ACTIVE_HOUR_END):
-        return
+    # Только в активные часы UTC (кроме принудительного запуска)
+    if not force:
+        hour = datetime.now(timezone.utc).hour
+        if not (ACTIVE_HOUR_START <= hour < ACTIVE_HOUR_END):
+            return
 
-    inactive = get_inactive_users(hours=INACTIVITY_HOURS, limit=BATCH_SIZE * 4)
+    if target_user_id:
+        # Атаковать конкретного игрока (тест)
+        from database import get_user
+        u = get_user(target_user_id)
+        if not u:
+            return
+        inactive = [u]
+    else:
+        # При force берём порог 0 часов (все), иначе обычный
+        threshold = 0 if force else INACTIVITY_HOURS
+        inactive = get_inactive_users(hours=threshold, limit=BATCH_SIZE * 4)
     if not inactive:
         return
 
     sent = 0
     for i, u in enumerate(inactive):
         uid = u["user_id"]
-        if _already_ambushed_today(uid):
+        if not force and _already_ambushed_today(uid):
             continue
 
         level    = u["level"]
@@ -302,14 +317,24 @@ async def cb_ambush_flee(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def setup_ambush_jobs(scheduler, bot):
     """Добавить рассылку атак в планировщик — 3 раза в день в активные часы."""
     from apscheduler.triggers.cron import CronTrigger
-    # 11:00, 16:00, 21:00 UTC — попадают в окно 10-22
+    import functools
+    # 11:00, 16:00, 21:00 UTC — попадают в окно 10-22.
+    # AsyncIOScheduler умеет выполнять async-функции напрямую — без lambda/create_task.
     for h in (11, 16, 21):
         scheduler.add_job(
-            lambda: asyncio.get_event_loop().create_task(send_ambushes(bot)),
+            functools.partial(send_ambushes, bot),
             CronTrigger(hour=h, minute=0, timezone="UTC"),
             id=f"ambush_{h}", replace_existing=True
         )
-    logger.info("Ambush jobs registered (11:00, 16:00, 21:00 UTC)")
+    # Дополнительно: проверка каждый час в активном окне (на случай если игрок
+    # стал неактивным между основными рассылками). Внутри send_ambushes есть
+    # защита от повторной атаки в один день.
+    scheduler.add_job(
+        functools.partial(send_ambushes, bot),
+        CronTrigger(hour="10-21", minute=30, timezone="UTC"),
+        id="ambush_hourly", replace_existing=True
+    )
+    logger.info("Ambush jobs registered (11:00, 16:00, 21:00 + ежечасно :30 UTC)")
 
 def register_ambush_handlers(app):
     app.add_handler(CallbackQueryHandler(cb_ambush_fight, pattern=r"^ambush_fight:"))

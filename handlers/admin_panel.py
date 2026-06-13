@@ -462,8 +462,13 @@ async def _run_instant_command(query, ctx, cmd: str):
     if cmd == "trigger_ambush":
         try:
             from handlers.ambush import send_ambushes
-            await send_ambushes(ctx.bot)
-            await query.message.reply_text("⚔️ Атаки разосланы неактивным игрокам.")
+            # Принудительный запуск + тестовая атака на самого админа,
+            # чтобы можно было сразу проверить как выглядит нападение.
+            await send_ambushes(ctx.bot, force=True, target_user_id=query.from_user.id)
+            await send_ambushes(ctx.bot, force=True)
+            await query.message.reply_text(
+                "⚔️ Атаки разосланы! Тебе тоже отправлено тестовое нападение — проверь сообщения."
+            )
         except Exception as e:
             await query.message.reply_text(f"⚠️ {str(e)[:120]}")
         return
