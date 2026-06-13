@@ -128,12 +128,37 @@ async def handle_profile(request):
     return _cors(web.json_response(data))
 
 
+async def handle_leaderboard(request):
+    """Топ игроков по уровню. Не требует авторизации (публичный рейтинг)."""
+    try:
+        from database import get_leaderboard
+        rows = get_leaderboard("level", 15)
+    except Exception as e:
+        logger.warning("leaderboard: %s", e)
+        rows = []
+    house_emojis = {
+        "gryffindor": "🦁", "slytherin": "🐍",
+        "ravenclaw":  "🦅", "hufflepuff": "🦡",
+    }
+    top = []
+    for i, r in enumerate(rows, 1):
+        top.append({
+            "place": i,
+            "name":  r.get("wizard_name", "—"),
+            "house": house_emojis.get(r.get("house"), "🏰"),
+            "level": r.get("level", 1),
+        })
+    return _cors(web.json_response({"top": top}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
     app.router.add_get("/health", handle_health)
     app.router.add_post("/api/profile", handle_profile)
     app.router.add_options("/api/profile", handle_options)
+    app.router.add_get("/api/leaderboard", handle_leaderboard)
+    app.router.add_options("/api/leaderboard", handle_options)
     return app
 
 
