@@ -37,6 +37,45 @@ def get_starter_spell(house: str) -> str:
     return HOUSE_SPELLS.get(house, "expelliarmus")
 
 
+def get_starter_spells(house: str) -> list[str]:
+    """3 стартовых заклинания: атакующее факультета + универсальная атака + полезное.
+    Гарантирует, что каждому игроку есть чем сражаться с самого начала.
+    """
+    # Атакующее заклинание факультета
+    house_attack = {
+        "gryffindor": "incendio",   # огонь
+        "slytherin":  "levicorpus", # подвешивание
+        "ravenclaw":  "flipendo",   # отталкивание
+        "hufflepuff": "stupefy",    # оглушение
+    }
+    # Полезное (щит/контроль) факультета
+    house_utility = {
+        "gryffindor": "protego",
+        "slytherin":  "confundus",
+        "ravenclaw":  "protego",
+        "hufflepuff": "reparo",
+    }
+    spells = [
+        "expelliarmus",                              # базовая атака — у всех
+        house_attack.get(house, "stupefy"),          # атака факультета
+        house_utility.get(house, "protego"),         # полезное факультета
+    ]
+    # Уникализируем, сохраняя порядок
+    seen, result = set(), []
+    for s in spells:
+        if s not in seen:
+            seen.add(s)
+            result.append(s)
+    # Если после уникализации меньше 3 — добиваем атакующими
+    for filler in ["flipendo", "stupefy", "incendio"]:
+        if len(result) >= 3:
+            break
+        if filler not in seen:
+            seen.add(filler)
+            result.append(filler)
+    return result[:3]
+
+
 def xp_needed_for_level(level: int) -> int:
     """Сколько опыта нужно для перехода с текущего уровня на следующий.
 
