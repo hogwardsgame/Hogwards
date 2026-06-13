@@ -28,6 +28,60 @@ HOUSE_EMOJI = {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
+# СИСТЕМА СТИХИЙ (камень-ножницы-бумага)
+# ══════════════════════════════════════════════════════════════════════════════
+# 5 стихий. Каждая сильна против одной и слаба против другой.
+# 🔥 Огонь > 🌿 Природа > ⚡ Молния > 💧 Вода > 🌑 Тьма > 🔥 Огонь (цикл)
+ELEMENTS = {
+    "fire":    {"emoji": "🔥", "name": "Огонь",  "strong": "nature", "weak": "water"},
+    "water":   {"emoji": "💧", "name": "Вода",   "strong": "fire",   "weak": "dark"},
+    "dark":    {"emoji": "🌑", "name": "Тьма",   "strong": "water",  "weak": "lightning"},
+    "lightning":{"emoji": "⚡", "name": "Молния", "strong": "dark",   "weak": "nature"},
+    "nature":  {"emoji": "🌿", "name": "Природа","strong": "lightning","weak": "fire"},
+}
+
+# Автоопределение стихии заклинания по его эффекту (чтобы не прописывать вручную)
+_EFFECT_ELEMENT = {
+    "burn": "fire", "freeze": "water", "poison": "nature", "curse": "dark",
+    "stun": "lightning", "blind": "lightning", "slow": "water", "confuse": "dark",
+    "lifesteal": "dark", "shield": "nature", "block": "nature", "reflect": "lightning",
+    "cleanse": "water", "silence": "dark", "weaken": "dark", "dispel": "water",
+    "expose": "fire", "disarm": "lightning", "instant_kill": "dark",
+}
+
+def spell_element(spell: dict) -> str | None:
+    """Стихия заклинания: явная или по эффекту. None если нет урона/нейтральное."""
+    if spell.get("element"):
+        return spell["element"]
+    eff = spell.get("effect")
+    return _EFFECT_ELEMENT.get(eff)
+
+def element_multiplier(atk_elem: str | None, def_elem: str | None) -> tuple[float, str]:
+    """Множитель урона по стихиям. Возвращает (множитель, метка)."""
+    if not atk_elem or atk_elem not in ELEMENTS:
+        return 1.0, ""
+    info = ELEMENTS[atk_elem]
+    if def_elem and info["strong"] == def_elem:
+        return 1.5, "💥 Преимущество стихии!"
+    if def_elem and info["weak"] == def_elem:
+        return 0.6, "🛡️ Стихия противника сильнее"
+    return 1.0, ""
+
+def element_badge(spell: dict) -> str:
+    """Эмодзи-значок стихии для кнопок/панели."""
+    el = spell_element(spell)
+    return ELEMENTS[el]["emoji"] if el and el in ELEMENTS else ""
+
+# Стихийная принадлежность факультета (для расчёта защиты по стихиям)
+_HOUSE_ELEMENT = {
+    "gryffindor": "fire",    # храбрость = огонь
+    "ravenclaw":  "water",   # мудрость = вода
+    "hufflepuff": "nature",  # трудолюбие = природа
+    "slytherin":  "dark",    # амбиции = тьма
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # СИСТЕМА КОМБО-ЗАКЛИНАНИЙ
 # ══════════════════════════════════════════════════════════════════════════════
 # Структура: (заклинание_1, заклинание_2) → {name, bonus_damage, effect, desc}
@@ -703,6 +757,17 @@ def resolve_turn(
     dmg, is_crit, missed, reflect_dmg, updated_def_status = calculate_damage(
         spell, attacker, defender, attacker_status, defender_status, combo_bonus
     )
+
+    # ── Множитель стихий ──────────────────────────────────────────────────────
+    # Стихия защитника определяется его факультетом (стихийная принадлежность).
+    elem_label = ""
+    if dmg > 0:
+        atk_elem = spell_element(spell)
+        def_elem = _HOUSE_ELEMENT.get(defender.get("house"))
+        mult, elem_label = element_multiplier(atk_elem, def_elem)
+        if mult != 1.0:
+            dmg = int(dmg * mult)
+    result["element_label"] = elem_label
 
     # Снизить урон контрзаклинанием
     if counter_reduce > 0:
