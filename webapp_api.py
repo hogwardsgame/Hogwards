@@ -251,6 +251,75 @@ async def handle_inventory(request):
     return _cors(web.json_response({"items": items}))
 
 
+async def handle_housecup(request):
+    """Очки факультетов (Кубок). Публичный."""
+    try:
+        from database import get_house_points
+        rows = get_house_points()
+    except Exception as e:
+        logger.warning("housecup: %s", e)
+        rows = []
+    house_names = {
+        "gryffindor": "Гриффиндор", "slytherin": "Слизерин",
+        "ravenclaw":  "Когтевран",  "hufflepuff": "Пуффендуй",
+    }
+    house_emojis = {
+        "gryffindor": "🦁", "slytherin": "🐍",
+        "ravenclaw":  "🦅", "hufflepuff": "🦡",
+    }
+    houses = []
+    for r in rows:
+        h = r.get("house")
+        houses.append({
+            "name":   house_names.get(h, h),
+            "emoji":  house_emojis.get(h, "🏰"),
+            "points": r.get("points", 0),
+        })
+    return _cors(web.json_response({"houses": houses}))
+
+
+async def handle_feed_pet(request):
+    """Покормить питомца. Требует авторизации."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+
+    user_id = int(tg_user["id"])
+    from datetime import datetime, timezone
+    from database import get_conn, fetchrow, execute
+
+    try:
+        with get_conn() as conn:
+            pet = fetchrow(conn, "SELECT * FROM user_pets WHERE user_id=%s", user_id)
+        if not pet:
+            return _cors(web.json_response({"ok": False, "msg": "У тебя нет питомца"}))
+        fed = pet.get("fed_at")
+        if fed:
+            if fed.tzinfo is None:
+                fed = fed.replace(tzinfo=timezone.utc)
+            hours = (datetime.now(timezone.utc) - fed).total_seconds() / 3600
+            if hours < 6:
+                left = int(6 - hours) + 1
+                return _cors(web.json_response({"ok": False, "msg": f"Питомец не голоден. Покорми через ~{left} ч."}))
+        new_h = min(100, (pet.get("happiness", 50) or 50) + 30)
+        with get_conn() as conn:
+            execute(conn, "UPDATE user_pets SET happiness=%s, fed_at=NOW() WHERE user_id=%s", new_h, user_id)
+        # немного опыта питомцу
+        try:
+            from handlers.pets import add_pet_xp
+            add_pet_xp(user_id, 15)
+        except Exception:
+            pass
+        return _cors(web.json_response({"ok": True, "msg": f"Питомец накормлен! Счастье: {new_h}/100"}))
+    except Exception as e:
+        logger.warning("feed_pet: %s", e)
+        return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -261,6 +330,10 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/leaderboard", handle_options)
     app.router.add_post("/api/inventory", handle_inventory)
     app.router.add_options("/api/inventory", handle_options)
+    app.router.add_get("/api/housecup", handle_housecup)
+    app.router.add_options("/api/housecup", handle_options)
+    app.router.add_post("/api/feedpet", handle_feed_pet)
+    app.router.add_options("/api/feedpet", handle_options)
     return app
 
 
