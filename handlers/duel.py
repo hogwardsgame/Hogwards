@@ -560,6 +560,13 @@ async def cb_duel_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     invite["task"].cancel()
+    # Гарантируем, что у обоих есть атакующее заклинание (для старых игроков)
+    try:
+        from database import ensure_attack_spell
+        ensure_attack_spell(challenger_id)
+        ensure_attack_spell(opponent_id)
+    except Exception:
+        pass
     player = get_user(challenger_id)
     opp    = get_user(opponent_id)
 
@@ -756,7 +763,20 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             frames.append(f"{elem_badge} *СТИХИЙНОЕ ПРЕИМУЩЕСТВО!* {elem_badge}")
         for fr in frames:
             await query.edit_message_text(fr, parse_mode="Markdown")
-            await asyncio.sleep(0.55)
+            await asyncio.sleep(0.8)
+        # Итоговый кадр с результатом — держим дольше, чтобы успеть прочитать
+        dmg_done = result.get("damage", 0)
+        result_frame = (
+            f"{elem_badge} *{sname}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{result['log']}"
+        )
+        if result.get("element_label"):
+            result_frame += f"\n{result['element_label']}"
+        if result.get("flavour"):
+            result_frame += f"\n_{result['flavour']}_"
+        await query.edit_message_text(result_frame, parse_mode="Markdown")
+        await asyncio.sleep(1.6)
     except Exception:
         pass
 

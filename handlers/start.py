@@ -8,7 +8,7 @@ from telegram.ext import (
 )
 from database import user_exists, wizard_name_taken, create_user, get_house_counts, set_user_lang, get_user
 from utils.i18n import t, t_lang, set_cached_lang
-from utils.helpers import validate_wizard_name, pick_house, get_starter_spell
+from utils.helpers import validate_wizard_name, pick_house, get_starter_spell, get_starter_spells
 from config import ADMIN_IDS
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ async def handle_name_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     hat_msg = await update.message.reply_text(t(user_id, "sorting_hat"), parse_mode="Markdown")
     house_counts = await _db(get_house_counts)
     house = pick_house(house_counts)
-    starter_spell = get_starter_spell(house)
+    starter_spells = get_starter_spells(house)
     lang = ctx.user_data.get("lang", "ru")
     await _db(lambda: create_user(
         user_id=user_id,
@@ -154,7 +154,7 @@ async def handle_name_input(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         wizard_name=name,
         house=house,
         lang=lang,
-        starter_spell=starter_spell,
+        starter_spell=starter_spells,
     ))
     await hat_msg.edit_text(t(user_id, f"sorted_{house}"), parse_mode="Markdown")
     await update.message.reply_text(t(user_id, "starter_items"))
