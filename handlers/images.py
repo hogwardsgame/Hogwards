@@ -111,23 +111,30 @@ async def cb_img_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     slot = query.data.split(":")[1]
     if slot not in IMAGE_SLOTS:
-        await query.edit_message_text("Слот не найден.")
+        await query.message.reply_text("Слот не найден.")
         return
     ctx.user_data["awaiting_image_slot"] = slot
     label, desc = IMAGE_SLOTS[slot]
     cur = "✅ загружена" if get_image(slot) else "⬜ пусто"
-    await query.edit_message_text(
-        f"🖼️ *{label}*\n"
-        f"_{desc}_\n\n"
+    text = (
+        f"🖼️ {label}\n"
+        f"{desc}\n\n"
         f"Текущее состояние: {cur}\n\n"
         f"📤 Пришли мне картинку (фото) — я установлю её на этот слот.\n"
-        f"Для отмены — /cancel_img",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🗑️ Удалить картинку", callback_data=f"img_del:{slot}"),
-            InlineKeyboardButton("◀️ Назад", callback_data="img_back"),
-        ]])
+        f"Для отмены — /cancel_img"
     )
+    markup = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🗑️ Удалить картинку", callback_data=f"img_del:{slot}"),
+        InlineKeyboardButton("◀️ Назад", callback_data="img_back"),
+    ]])
+    # Отправляем НОВОЕ сообщение (надёжнее, чем edit — не зависит от типа исходного)
+    try:
+        await query.message.reply_text(text, reply_markup=markup)
+    except Exception as e:
+        logger.warning("cb_img_set reply: %s", e)
+        await query.message.reply_text(
+            f"Слот «{label}» выбран. Пришли картинку для установки. Отмена: /cancel_img"
+        )
 
 async def cb_img_del(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -138,9 +145,10 @@ async def cb_img_del(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     set_setting(f"image:{slot}", "")
     ctx.user_data.pop("awaiting_image_slot", None)
     await query.answer("🗑️ Картинка удалена.")
-    await query.edit_message_text(
-        f"🖼️ *Картинки бота*\n━━━━━━━━━━━━━━━━━━━━\nКартинка удалена. Выбери слот:",
-        parse_mode="Markdown", reply_markup=_slots_keyboard()
+    loaded = sum(1 for s in IMAGE_SLOTS if get_image(s))
+    await query.message.reply_text(
+        f"🖼️ Картинки бота\nЗагружено: {loaded}/{len(IMAGE_SLOTS)}\n\nВыбери слот:",
+        reply_markup=_slots_keyboard()
     )
 
 async def cb_img_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -148,9 +156,9 @@ async def cb_img_back(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     ctx.user_data.pop("awaiting_image_slot", None)
     loaded = sum(1 for s in IMAGE_SLOTS if get_image(s))
-    await query.edit_message_text(
-        f"🖼️ *Картинки бота*\n━━━━━━━━━━━━━━━━━━━━\nЗагружено: {loaded}/{len(IMAGE_SLOTS)}\n\nВыбери слот:",
-        parse_mode="Markdown", reply_markup=_slots_keyboard()
+    await query.message.reply_text(
+        f"🖼️ Картинки бота\nЗагружено: {loaded}/{len(IMAGE_SLOTS)}\n\nВыбери слот:",
+        reply_markup=_slots_keyboard()
     )
 
 async def handle_image_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
