@@ -645,7 +645,7 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     state = _active_duels.get(duel_id)
     if not state:
-        await query.edit_message_text("❌ Дуэль уже завершена.")
+        await query.answer("❌ Дуэль уже завершена.", show_alert=True)
         return
 
     # Проверка хода
@@ -655,6 +655,9 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if actor_key == "opponent" and user_id != state["opponent"]["user_id"]:
         await query.answer("❌ Сейчас не твой ход!", show_alert=True)
         return
+
+    # Отвечаем сразу, чтобы кнопка не «висела»
+    await query.answer()
 
     if state.get("timeout_task"):
         state["timeout_task"].cancel()
@@ -714,6 +717,7 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     lang  = attacker.get("lang", "ru")
     sname = spell_display_name(spell_id, lang)
     h     = HOUSE_EMOJI.get(attacker.get("house", ""), "🏠")
+    spell = get_spell(spell_id) or SPELLS.get(spell_id, {})
     elem_badge = element_badge(spell)
 
     log_entry = f"{h} {attacker['wizard_name']}: {elem_badge}{sname} — {result['log']}"
@@ -736,8 +740,6 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         flash = "✨🌟 КОМБО-ЗАКЛИНАНИЕ! 🌟✨"
     elif result.get("element_label") == "💥 Преимущество стихии!":
         flash = f"{elem_badge} СТИХИЙНОЕ ПРЕИМУЩЕСТВО! {elem_badge}"
-
-    await query.answer()
 
     # ── Живая анимация боя: несколько кадров через редактирование ─────────────
     # Замах → вспышка заклинания → результат. Смотрится как мини-кат-сцена.
