@@ -63,6 +63,7 @@ def _public_state(uid: int) -> dict:
         "over":    st["over"],
         "result":  st.get("result"),
         "reward":  st.get("reward"),
+        "lastTurn": st.get("last_turn"),
     }
 
 
@@ -142,6 +143,7 @@ def cast(user_id: int, spell_id: str) -> dict:
         st["player_hp"], st["monster_hp"], st["player_mana"],
         prev_spell_id=st.get("prev_spell"),
     )
+    dmg_to_monster = max(0, st["monster_hp"] - res["defender_hp"])
     st["player_hp"]      = res["attacker_hp"]
     st["monster_hp"]     = res["defender_hp"]
     st["player_mana"]    = max(0, st["player_mana"] - res["mana_cost"])
@@ -149,7 +151,16 @@ def cast(user_id: int, spell_id: str) -> dict:
     st["monster_status"] = res["new_def_status"]
     st["prev_spell"]     = spell_id
 
-    from game.spells import spell_display_name
+    from game.spells import spell_display_name, SPELLS as _SP
+    from game.battle_engine import element_badge
+    st["last_turn"] = {
+        "who": "player",
+        "dmg": dmg_to_monster,
+        "heal": res.get("heal", 0) or 0,
+        "crit": bool(res.get("crit")),
+        "element": element_badge(_SP.get(spell_id, {})),
+        "elementAdv": res.get("element_label") == "💥 Преимущество стихии!",
+    }
     sname = spell_display_name(spell_id, "ru")
     line = f"🧙 {sname}: {res['log']}"
     if res.get("crit"): line = "💥 КРИТ! " + line
@@ -173,10 +184,17 @@ def cast(user_id: int, spell_id: str) -> dict:
         st["monster_status"], st["player_status"],
         st["monster_hp"], st["player_hp"], 100,
     )
+    dmg_to_player = max(0, st["player_hp"] - res2["defender_hp"])
     st["monster_hp"]     = res2["attacker_hp"]
     st["player_hp"]      = res2["defender_hp"]
     st["monster_status"] = res2["new_atk_status"]
     st["player_status"]  = res2["new_def_status"]
+    st["last_turn"] = {
+        "who": "monster",
+        "dmg": dmg_to_player,
+        "crit": bool(res2.get("crit")),
+        "element": "", "elementAdv": False, "heal": 0,
+    }
     mname = monster["name"].get("ru") if isinstance(monster.get("name"), dict) else monster.get("name", "Монстр")
     st["log"].append(f"{monster.get('emoji','👹')} {mname}: {res2['log']}")
 
