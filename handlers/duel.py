@@ -41,8 +41,9 @@ def _get_next_duel_id() -> int:
 
 
 def _spells_keyboard(spell_ids: list[str], duel_id: int, actor: str, lang: str,
-                     current_mana: int = 9999, prev_spell: str = None) -> InlineKeyboardMarkup:
-    """Клавиатура заклинаний с подсветкой комбо."""
+                     current_mana: int = 9999, prev_spell: str = None,
+                     ult_charge: int = 0) -> InlineKeyboardMarkup:
+    """Клавиатура заклинаний с предпросмотром урона/маны, комбо, защитой и ультимейтом."""
     buttons = []
     for sid in spell_ids[:8]:
         spell = SPELLS.get(sid)
@@ -62,10 +63,19 @@ def _spells_keyboard(spell_ids: list[str], duel_id: int, actor: str, lang: str,
         if mana > current_mana:
             label = f"🚫 {rarity_e}{name} 💧{mana}"
         else:
-            label = f"{combo_mark}{rarity_e}{name} 💧{mana}"
-            if dmg:  label += f" ⚔️{dmg}"
-            if heal: label += f" 💚{heal}"
+            # Предпросмотр: урон/лечение + мана прямо на кнопке
+            stats = []
+            if dmg:  stats.append(f"⚔️{dmg}")
+            if heal: stats.append(f"💚{heal}")
+            stats.append(f"💧{mana}")
+            label = f"{combo_mark}{rarity_e}{name} ({' '.join(stats)})"
         buttons.append([InlineKeyboardButton(label, callback_data=f"duel_cast:{duel_id}:{actor}:{sid}")])
+
+    # Тактические кнопки: защита + ультимейт
+    tactical = [InlineKeyboardButton("🛡️ Защита (+ману, -урон)", callback_data=f"duel_guard:{duel_id}:{actor}")]
+    buttons.append(tactical)
+    if ult_charge >= 100:
+        buttons.append([InlineKeyboardButton("⚡🔥 УЛЬТИМЕЙТ! 🔥⚡", callback_data=f"duel_ult:{duel_id}:{actor}")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -143,13 +153,21 @@ async def _end_duel(duel_id: int, winner_id: int | None, ctx: ContextTypes.DEFAU
             f"Проигравший: +{xp_lose} XP | +{gold_lose} 💰"
             f"{elo_line}"
         )
+        # Кнопка реванша — другой игрок может перевызвать
+        p_uid, o_uid = player["user_id"], opponent["user_id"]
+        rematch_p = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔄 Реванш!", callback_data=f"duel_rematch:{o_uid}")
+        ]])
+        rematch_o = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔄 Реванш!", callback_data=f"duel_rematch:{p_uid}")
+        ]])
         try:
-            await ctx.bot.send_message(player["user_id"], result_text, parse_mode="Markdown")
+            await ctx.bot.send_message(p_uid, result_text, parse_mode="Markdown", reply_markup=rematch_p)
         except Exception:
             pass
-        if player["user_id"] != opponent["user_id"]:
+        if p_uid != o_uid:
             try:
-                await ctx.bot.send_message(opponent["user_id"], result_text, parse_mode="Markdown")
+                await ctx.bot.send_message(o_uid, result_text, parse_mode="Markdown", reply_markup=rematch_o)
             except Exception:
                 pass
 
@@ -192,7 +210,7 @@ def _flip_turn(state: dict):
     state["current_turn"] = "opponent" if state["current_turn"] == "player" else "player"
 
 
-async def _send_turn(duel_id: int, ctx: ContextTypes.DEFAULT_TYPE):
+async def _send_turn(duel_id: int, ctx: ContextTypes.DEFAULT_TYPE, flash: str = ""):
     state = _active_duels.get(duel_id)
     if not state:
         return
@@ -209,7 +227,6 @@ async def _send_turn(duel_id: int, ctx: ContextTypes.DEFAULT_TYPE):
         state["opponent_hp"] = max(0, state["opponent_hp"] - dot_m)
         state["log"].append(f"🔥 {state['opponent']['wizard_name']} получает {dot_m} урона от эффекта")
 
-    # Ограничение лога
     state["log"] = state["log"][-5:]
 
     # После DoT кто-то может умереть
@@ -220,21 +237,21 @@ async def _send_turn(duel_id: int, ctx: ContextTypes.DEFAULT_TYPE):
         await _end_duel(duel_id, state["player"]["user_id"], ctx)
         return
 
-    # Ход: кто сейчас ходит
+    # Кто ходит
     if state["current_turn"] == "player":
-        actor     = state["player"]
-        actor_key = "player"
-        cur_mana  = state["player_mana"]
-        prev_s    = state.get("player_prev_spell")
+        actor, actor_key = state["player"], "player"
+        cur_mana = state["player_mana"]
+        prev_s   = state.get("player_prev_spell")
+        ult      = state.get("player_ult", 0)
     else:
-        actor     = state["opponent"]
-        actor_key = "opponent"
-        cur_mana  = state["opponent_mana"]
-        prev_s    = state.get("opponent_prev_spell")
+        actor, actor_key = state["opponent"], "opponent"
+        cur_mana = state["opponent_mana"]
+        prev_s   = state.get("opponent_prev_spell")
+        ult      = state.get("opponent_ult", 0)
 
     actor_spells = [row["spell_id"] for row in get_user_spells(actor["user_id"])]
 
-    # Если нет маны — регенерация
+    # Регенерация маны если нечем кастовать
     if not can_cast_any(actor_spells, cur_mana):
         new_mana = min(actor.get("max_mana", 50), cur_mana + MANA_REGEN_PER_TURN)
         if actor_key == "player":
@@ -245,32 +262,58 @@ async def _send_turn(duel_id: int, ctx: ContextTypes.DEFAULT_TYPE):
         cur_mana = new_mana
 
     lang   = actor.get("lang", "ru")
-    markup = _spells_keyboard(actor_spells, duel_id, actor_key, lang, cur_mana, prev_s)
+    panel  = format_pvp_panel(state, flash=flash)
 
-    panel = format_pvp_panel(state)
-    try:
-        await ctx.bot.send_message(
-            actor["user_id"],
-            panel,
-            parse_mode="Markdown",
-            reply_markup=markup,
-        )
-    except Exception as e:
-        logger.error(f"Ошибка отправки хода: {e}")
+    active_markup = _spells_keyboard(actor_spells, duel_id, actor_key, lang, cur_mana, prev_s, ult)
+
+    # Редактируем сообщения ОБОИХ игроков (вместо новых)
+    await _update_duel_messages(duel_id, ctx, panel, active_markup, actor["user_id"])
 
     # Таймаут хода
     async def _timeout():
-        await asyncio.sleep(DUEL_TIMEOUT_SECONDS)
-        st = _active_duels.get(duel_id)
-        if st and st["current_turn"] == actor_key:
-            st["log"].append(f"⏰ {actor['wizard_name']} не успел — ход пропущен!")
-            _flip_turn(st)
+        try:
+            await asyncio.sleep(DUEL_TIMEOUT_SECONDS)
+            st = _active_duels.get(duel_id)
+            if not st:
+                return
+            # Авто-пропуск хода: переход к сопернику
+            st["log"].append(f"⏰ {actor['wizard_name']} пропустил ход (время вышло)")
             st["turn_number"] += 1
+            _flip_turn(st)
             await _send_turn(duel_id, ctx)
-
-    if state.get("timeout_task"):
-        state["timeout_task"].cancel()
+        except asyncio.CancelledError:
+            pass
     state["timeout_task"] = asyncio.get_event_loop().create_task(_timeout())
+
+
+async def _update_duel_messages(duel_id, ctx, panel, active_markup, active_uid):
+    """Редактирует/создаёт сообщения обоих игроков. Активный получает кнопки."""
+    state = _active_duels.get(duel_id)
+    if not state:
+        return
+    for who, uid_key, mid_key in (("player","user_id","player_msg_id"),
+                                   ("opponent","user_id","opponent_msg_id")):
+        person = state[who]
+        uid    = person["user_id"]
+        is_active = (uid == active_uid)
+        markup = active_markup if is_active else None
+        mid = state.get(mid_key)
+        try:
+            if mid:
+                await ctx.bot.edit_message_text(
+                    chat_id=uid, message_id=mid, text=panel,
+                    parse_mode="Markdown", reply_markup=markup
+                )
+            else:
+                msg = await ctx.bot.send_message(uid, panel, parse_mode="Markdown", reply_markup=markup)
+                state[mid_key] = msg.message_id
+        except Exception as e:
+            # Если редактирование не удалось (сообщение удалено) — шлём новое
+            try:
+                msg = await ctx.bot.send_message(uid, panel, parse_mode="Markdown", reply_markup=markup)
+                state[mid_key] = msg.message_id
+            except Exception:
+                logger.warning("duel msg update uid=%s: %s", uid, e)
 
 
 async def cmd_duel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -535,6 +578,13 @@ async def cb_duel_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "timeout_task":        None,
         "player_prev_spell":   None,
         "opponent_prev_spell": None,
+        # Новое: ультимейт-заряд, защитная стойка, id сообщений для редактирования
+        "player_ult":          0,
+        "opponent_ult":        0,
+        "player_guard":        False,
+        "opponent_guard":      False,
+        "player_msg_id":       None,
+        "opponent_msg_id":     None,
     }
     _active_duels[duel_id] = state
 
@@ -616,6 +666,15 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         defender_spell_ids=def_spells,
     )
 
+    # Если защищающийся в стойке — снижаем входящий урон на 40%
+    guard_key = "opponent_guard" if actor_key == "player" else "player_guard"
+    if state.get(guard_key):
+        reduced = int(result["defender_hp"] + (def_hp - result["defender_hp"]) * 0.4)
+        # пересчёт: вернуть 40% урона
+        dmg_dealt = def_hp - result["defender_hp"]
+        result["defender_hp"] = def_hp - int(dmg_dealt * 0.6)
+        state[guard_key] = False  # стойка снимается после удара
+
     # Применяем результаты
     if actor_key == "player":
         state["player_hp"]       = result["attacker_hp"]
@@ -624,6 +683,9 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         state["player_status"]   = result["new_atk_status"]
         state["opponent_status"] = result["new_def_status"]
         state["player_prev_spell"] = spell_id
+        # Заряд ультимейта: +20 за ход, +15 за крит/комбо
+        gain = 20 + (15 if result.get("crit") else 0) + (15 if result.get("combo") else 0)
+        state["player_ult"] = min(100, state.get("player_ult", 0) + gain)
     else:
         state["opponent_hp"]     = result["attacker_hp"]
         state["player_hp"]       = result["defender_hp"]
@@ -631,6 +693,8 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         state["opponent_status"] = result["new_atk_status"]
         state["player_status"]   = result["new_def_status"]
         state["opponent_prev_spell"] = spell_id
+        gain = 20 + (15 if result.get("crit") else 0) + (15 if result.get("combo") else 0)
+        state["opponent_ult"] = min(100, state.get("opponent_ult", 0) + gain)
 
     lang  = attacker.get("lang", "ru")
     sname = spell_display_name(spell_id, lang)
@@ -638,7 +702,7 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     log_entry = f"{h} {attacker['wizard_name']}: {sname} — {result['log']}"
     if result.get("combo"):
-        log_entry = f"✨ КОМБО «{result['combo']['name']}»!\n" + log_entry
+        log_entry = f"✨🌟 КОМБО «{result['combo']['name']}»! 🌟✨\n" + log_entry
     if result.get("counter"):
         log_entry += f"\n🛡️ Контр: {result['counter']['desc']}"
     if result.get("flavour"):
@@ -646,11 +710,24 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state["log"].append(log_entry)
     state["log"] = state["log"][-5:]
 
-    # Обновляем панель для обоих
-    panel = format_pvp_panel(state)
-    await query.edit_message_text(panel, parse_mode="Markdown")
+    # Анимация: показываем вспышку каста, затем результат
+    flash = ""
+    if result.get("crit"):
+        flash = "💥💥💥 КРИТИЧЕСКИЙ УДАР! 💥💥💥"
+    elif result.get("combo"):
+        flash = "✨🌟 КОМБО-ЗАКЛИНАНИЕ! 🌟✨"
 
-    # Конец дуэли
+    await query.answer()
+
+    # Короткая «анимация» каста на сообщении атакующего
+    try:
+        cast_msg = f"🪄✨ *{attacker['wizard_name']}* применяет *{sname}*..."
+        await query.edit_message_text(cast_msg, parse_mode="Markdown")
+        await asyncio.sleep(0.7)
+    except Exception:
+        pass
+
+    # Конец дуэли?
     if result.get("instant_kill") or state["player_hp"] <= 0 or state["opponent_hp"] <= 0:
         if state["player_hp"] <= 0 and state["opponent_hp"] <= 0:
             winner_id = None
@@ -663,7 +740,180 @@ async def cb_duel_cast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     state["turn_number"] += 1
     _flip_turn(state)
+    await _send_turn(duel_id, ctx, flash=flash)
+
+
+async def cb_duel_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Защитная стойка: восстанавливает ману, снижает следующий входящий урон на 40%."""
+    query   = update.callback_query
+    parts   = query.data.split(":")
+    duel_id, actor_key = int(parts[1]), parts[2]
+    user_id = query.from_user.id
+
+    state = _active_duels.get(duel_id)
+    if not state:
+        await query.answer("Дуэль завершена.", show_alert=True)
+        return
+    # Проверка хода
+    if actor_key == "player" and user_id != state["player"]["user_id"]:
+        await query.answer("Сейчас не твой ход!", show_alert=True); return
+    if actor_key == "opponent" and user_id != state["opponent"]["user_id"]:
+        await query.answer("Сейчас не твой ход!", show_alert=True); return
+
+    if state.get("timeout_task"):
+        state["timeout_task"].cancel()
+    await query.answer("🛡️ Ты встал в защитную стойку!")
+
+    actor = state["player"] if actor_key == "player" else state["opponent"]
+    # Восстановление маны и установка щита
+    mana_key = "player_mana" if actor_key == "player" else "opponent_mana"
+    guard_key = "player_guard" if actor_key == "player" else "opponent_guard"
+    ult_key = "player_ult" if actor_key == "player" else "opponent_ult"
+    state[mana_key] = min(actor.get("max_mana", 50), state[mana_key] + 25)
+    state[guard_key] = True
+    state[ult_key] = min(100, state.get(ult_key, 0) + 10)
+    state["log"].append(f"🛡️ {actor['wizard_name']} в защитной стойке (+25💧, -40% урона)")
+    state["log"] = state["log"][-5:]
+
+    state["turn_number"] += 1
+    _flip_turn(state)
     await _send_turn(duel_id, ctx)
+
+
+async def cb_duel_ult(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Ультимейт: мощный удар без затрат маны при полной шкале."""
+    query   = update.callback_query
+    parts   = query.data.split(":")
+    duel_id, actor_key = int(parts[1]), parts[2]
+    user_id = query.from_user.id
+
+    state = _active_duels.get(duel_id)
+    if not state:
+        await query.answer("Дуэль завершена.", show_alert=True)
+        return
+    if actor_key == "player" and user_id != state["player"]["user_id"]:
+        await query.answer("Сейчас не твой ход!", show_alert=True); return
+    if actor_key == "opponent" and user_id != state["opponent"]["user_id"]:
+        await query.answer("Сейчас не твой ход!", show_alert=True); return
+
+    ult_key = "player_ult" if actor_key == "player" else "opponent_ult"
+    if state.get(ult_key, 0) < 100:
+        await query.answer("Шкала ультимейта не заполнена!", show_alert=True)
+        return
+
+    if state.get("timeout_task"):
+        state["timeout_task"].cancel()
+
+    if actor_key == "player":
+        attacker, defender = state["player"], state["opponent"]
+        def_hp = state["opponent_hp"]
+    else:
+        attacker, defender = state["opponent"], state["player"]
+        def_hp = state["player_hp"]
+
+    # Ультимейт-урон: масштабируется от атаки игрока
+    ult_dmg = int(attacker.get("attack", 20) * 4 + 80)
+    new_def_hp = max(0, def_hp - ult_dmg)
+
+    if actor_key == "player":
+        state["opponent_hp"] = new_def_hp
+    else:
+        state["player_hp"] = new_def_hp
+    state[ult_key] = 0  # сброс шкалы
+
+    await query.answer("⚡🔥 УЛЬТИМАТИВНЫЙ УДАР!")
+    state["log"].append(f"⚡🔥 {attacker['wizard_name']} применяет УЛЬТИМЕЙТ! −{ult_dmg} HP!")
+    state["log"] = state["log"][-5:]
+
+    flash = "⚡🔥💥 УЛЬТИМАТИВНЫЙ УДАР! 💥🔥⚡"
+
+    # Анимация
+    try:
+        await query.edit_message_text(
+            f"⚡🔥 *{attacker['wizard_name']}* концентрирует всю магическую силу...",
+            parse_mode="Markdown")
+        await asyncio.sleep(0.9)
+    except Exception:
+        pass
+
+    # Проверка смерти
+    if new_def_hp <= 0:
+        winner_id = attacker["user_id"]
+        await _end_duel(duel_id, winner_id, ctx)
+        return
+
+    state["turn_number"] += 1
+    _flip_turn(state)
+    await _send_turn(duel_id, ctx, flash=flash)
+
+
+async def cb_duel_rematch(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Реванш — повторный вызов того же соперника одной кнопкой."""
+    query   = update.callback_query
+    user_id = query.from_user.id
+    target_id = int(query.data.split(":")[1])
+
+    if not user_exists(user_id):
+        await query.answer("Сначала зарегистрируйся через /start.", show_alert=True)
+        return
+
+    # Проверка дневного лимита
+    used = get_daily_limit(user_id, "pvp_duels")
+    if used >= DAILY_LIMITS["pvp_duels"]:
+        await query.answer("На сегодня дуэли закончились!", show_alert=True)
+        return
+
+    target = get_user(target_id)
+    if not target:
+        await query.answer("Соперник не найден.", show_alert=True)
+        return
+    if target_id == user_id:
+        await query.answer("Нельзя вызвать самого себя.", show_alert=True)
+        return
+
+    player = get_user(user_id)
+    if abs(player["level"] - target["level"]) > MAX_LEVEL_DIFF_PVP:
+        await query.answer(f"Разница в уровнях слишком велика (макс. ±{MAX_LEVEL_DIFF_PVP}).", show_alert=True)
+        return
+
+    # Уже есть активный вызов от этого игрока?
+    if user_id in _pending_invites:
+        await query.answer("У тебя уже есть активный вызов.", show_alert=True)
+        return
+
+    await query.answer("🔄 Отправляю вызов на реванш!")
+
+    markup = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Принять", callback_data=f"duel_accept:{user_id}"),
+        InlineKeyboardButton("❌ Отклонить", callback_data=f"duel_decline:{user_id}"),
+    ]])
+    try:
+        await ctx.bot.send_message(
+            target_id,
+            f"🔄 *Вызов на РЕВАНШ!*\n\n"
+            f"Волшебник *{md_escape(player['wizard_name'])}* "
+            f"({HOUSE_EMOJI.get(player['house'], '🏠')}, ур.{player['level']}) "
+            f"хочет реванш!\n\nЕсть {DUEL_INVITE_TIMEOUT} секунд.",
+            parse_mode="Markdown",
+            reply_markup=markup,
+        )
+    except Exception:
+        await query.edit_message_text("❌ Не удалось отправить вызов — соперник недоступен.")
+        return
+
+    try:
+        await query.edit_message_text(
+            f"📨 Вызов на реванш отправлен *{md_escape(target['wizard_name'])}*!",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
+
+    async def _expire():
+        await asyncio.sleep(DUEL_INVITE_TIMEOUT)
+        _pending_invites.pop(user_id, None)
+    task = asyncio.get_event_loop().create_task(_expire())
+    _pending_invites[user_id] = {"opponent_id": target_id, "task": task}
 
 
 async def handle_duel_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -678,6 +928,9 @@ def register_duel_handlers(app):
     app.add_handler(CallbackQueryHandler(cb_duel_accept,    pattern=r"^duel_accept:"))
     app.add_handler(CallbackQueryHandler(cb_duel_decline,   pattern=r"^duel_decline:"))
     app.add_handler(CallbackQueryHandler(cb_duel_cast,      pattern=r"^duel_cast:"))
+    app.add_handler(CallbackQueryHandler(cb_duel_guard,     pattern=r"^duel_guard:"))
+    app.add_handler(CallbackQueryHandler(cb_duel_ult,       pattern=r"^duel_ult:"))
     app.add_handler(CallbackQueryHandler(cb_duel_menu,      pattern=r"^duel_menu:"))
     app.add_handler(CallbackQueryHandler(cb_duel_challenge, pattern=r"^duel_challenge:"))
+    app.add_handler(CallbackQueryHandler(cb_duel_rematch,   pattern=r"^duel_rematch:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_duel_button), group=4)
