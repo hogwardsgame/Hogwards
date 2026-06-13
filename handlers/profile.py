@@ -37,7 +37,10 @@ def _equipment_summary(user_id: int) -> tuple[str, dict]:
     return "\n".join(lines), bonuses
 
 def _quick_actions() -> InlineKeyboardMarkup:
+    from telegram import WebAppInfo
+    from handlers.miniapp import MINIAPP_URL
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✨ Красивый профиль", web_app=WebAppInfo(url=MINIAPP_URL))],
         [InlineKeyboardButton("⚔️ В бой", callback_data="pf_quick:dungeon"),
          InlineKeyboardButton("🏪 Магазин", callback_data="pf_quick:shop")],
         [InlineKeyboardButton("🎒 Инвентарь", callback_data="pf_quick:inventory"),
