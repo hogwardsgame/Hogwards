@@ -94,11 +94,19 @@ async def show_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not user_exists(user_id):
         await update.message.reply_text(t(user_id, "not_registered"))
         return
-    await update.message.reply_text(
-        _build_profile_text(user_id),
-        parse_mode="Markdown",
-        reply_markup=_quick_actions(),
-    )
+    text = _build_profile_text(user_id)
+    # Показываем герб факультета игрока если загружен, иначе общий баннер профиля
+    try:
+        from handlers.images import send_with_image, HOUSE_IMAGE_MAP, get_image
+        user = get_user(user_id)
+        house_slot = HOUSE_IMAGE_MAP.get(user.get("house"))
+        slot = house_slot if (house_slot and get_image(house_slot)) else "profile"
+        await send_with_image(update.get_bot(), update.effective_chat.id, slot,
+                              text, reply_markup=_quick_actions())
+        return
+    except Exception:
+        pass
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=_quick_actions())
 
 async def cb_pf_quick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query  = update.callback_query

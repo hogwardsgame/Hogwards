@@ -87,6 +87,7 @@ CATEGORIES = {
             ("admin_log",   "📋 Журнал действий"),
             ("maintenance",     "🔧 Режим обслуживания вкл/выкл"),
             ("set_maint_msg",   "✏️ Текст сообщения о техработах"),
+            ("manage_images",   "🖼️ Картинки бота"),
         ],
     },
 }
@@ -455,6 +456,20 @@ async def _run_instant_command(query, ctx, cmd: str):
             from handlers.tournament import open_tournament_registration
             await open_tournament_registration(ctx)
             await query.message.reply_text("🏆 Регистрация на турнир открыта!")
+        except Exception as e:
+            await query.message.reply_text(f"⚠️ {str(e)[:120]}")
+        return
+
+    if cmd == "manage_images":
+        try:
+            from handlers.images import cmd_images
+            class _WImg:
+                def __init__(self, q): self._q = q
+                @property
+                def effective_user(self): return self._q.from_user
+                @property
+                def message(self): return self._q.message
+            await cmd_images(_WImg(query), ctx)
         except Exception as e:
             await query.message.reply_text(f"⚠️ {str(e)[:120]}")
         return

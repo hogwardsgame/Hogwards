@@ -6,6 +6,7 @@ World Bosses — мировые боссы.
 """
 import logging
 import random
+import asyncio
 from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
@@ -698,11 +699,22 @@ async def spawn_world_boss(boss_id: str, ctx) -> bool:
             f"⌛ Босс исчезнет через *{dur_str}*."
         )
         try:
-            await ctx.bot.send_message(uid, text, parse_mode="Markdown")
+            from handlers.images import send_with_image, get_image
+            _boss_img = {
+                "basilisk_ancient":   "boss_basilisk",
+                "hungarian_horntail": "boss_dragon",
+                "ancient_dementor":   "boss_wraith",
+            }
+            slot = _boss_img.get(boss_id)
+            if slot and get_image(slot):
+                await send_with_image(ctx.bot, uid, slot, text)
+            else:
+                await ctx.bot.send_message(uid, text, parse_mode="Markdown")
         except Exception:
-            pass
-
-    import asyncio
+            try:
+                await ctx.bot.send_message(uid, text, parse_mode="Markdown")
+            except Exception:
+                pass
     async def _auto_expire():
         await asyncio.sleep(WORLD_BOSS_DURATION_MINUTES * 60)
         wb_check = get_active_world_boss()
