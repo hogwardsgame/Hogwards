@@ -1,7 +1,6 @@
 import logging
 import asyncio
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from concurrent.futures import ThreadPoolExecutor
 
 from telegram.ext import ApplicationBuilder
@@ -62,19 +61,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Healthcheck для Railway
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Hogwarts Bot is running!")
-    def log_message(self, *args):
-        pass
-
-threading.Thread(
-    target=lambda: HTTPServer(("0.0.0.0", 8080), _HealthHandler).serve_forever(),
-    daemon=True,
-).start()
+# Healthcheck и Mini App API теперь обслуживает webapp_api.py (порт 8080).
+# Старый _HealthHandler удалён, чтобы освободить порт для API-сервера.
 
 db_executor = ThreadPoolExecutor(max_workers=10)
 
