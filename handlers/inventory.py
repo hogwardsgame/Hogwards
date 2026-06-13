@@ -252,11 +252,16 @@ async def cmd_inventory(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     groups = _group_inventory(inv)
-    await update.message.reply_text(
-        _inv_main_text(inv, equipped),
-        parse_mode="Markdown",
-        reply_markup=_main_keyboard(groups),
-    )
+    try:
+        from handlers.images import send_with_image
+        await send_with_image(update.get_bot(), update.effective_chat.id, "inventory",
+                              _inv_main_text(inv, equipped), reply_markup=_main_keyboard(groups))
+    except Exception:
+        await update.message.reply_text(
+            _inv_main_text(inv, equipped),
+            parse_mode="Markdown",
+            reply_markup=_main_keyboard(groups),
+        )
 
 
 async def cb_inv_main(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

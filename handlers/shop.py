@@ -119,7 +119,12 @@ async def cmd_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user  = get_user(user_id)
     stock = _ensure_daily_shop()
     text  = _shop_list_text(user, stock)
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=_shop_list_keyboard(stock))
+    try:
+        from handlers.images import send_with_image
+        await send_with_image(update.get_bot(), update.effective_chat.id, "shop", text,
+                              reply_markup=_shop_list_keyboard(stock))
+    except Exception:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=_shop_list_keyboard(stock))
 
 async def cb_shop_buy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query       = update.callback_query

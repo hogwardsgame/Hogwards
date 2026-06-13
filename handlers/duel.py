@@ -347,16 +347,20 @@ async def cmd_duel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🎲 Случайный противник", callback_data="duel_menu:random")],
         [InlineKeyboardButton("🔢 Вызвать по ID",       callback_data="duel_menu:by_id")],
     ])
-    await update.message.reply_text(
+    _duel_text = (
         f"⚔️ *Дуэль*\n\n"
         f"Твой ID: `{user_id}`\n"
         f"Уровень: {player['level']} | Лимит разницы: ±{MAX_LEVEL_DIFF_PVP}\n"
         f"Дуэлей сегодня: {used}/{DAILY_LIMITS['pvp_duels']}\n\n"
         f"💡 Поделись своим ID с другом, чтобы он мог вызвать тебя командой:\n"
-        f"`/duel {user_id}`",
-        parse_mode="Markdown",
-        reply_markup=markup,
+        f"`/duel {user_id}`"
     )
+    try:
+        from handlers.images import send_with_image
+        await send_with_image(update.get_bot(), update.effective_chat.id, "duel",
+                              _duel_text, reply_markup=markup)
+    except Exception:
+        await update.message.reply_text(_duel_text, parse_mode="Markdown", reply_markup=markup)
 
 
 async def cb_duel_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

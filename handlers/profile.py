@@ -119,9 +119,12 @@ async def cb_pf_quick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         @property
         def effective_user(self): return self._q.from_user
         @property
+        def effective_chat(self): return self._q.message.chat
+        @property
         def message(self): return self._q.message
         @property
         def callback_query(self): return None
+        def get_bot(self): return self._q.message.get_bot()
 
     wrap = _Wrap(query)
     try:

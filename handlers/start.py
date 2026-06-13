@@ -102,6 +102,15 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+        # Баннер главного меню (если загружен) — отдельным фото перед приветствием
+        try:
+            from handlers.images import get_image
+            banner = get_image("main_menu")
+            if banner:
+                await update.get_bot().send_photo(update.effective_chat.id, banner)
+        except Exception:
+            pass
+
         await update.message.reply_text(
             t(user_id, "already_registered"),
             reply_markup=main_menu_keyboard(user_id),

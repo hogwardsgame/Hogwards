@@ -214,6 +214,8 @@ class _CallbackUpdate:
     @property
     def callback_query(self):
         return None
+    def get_bot(self):
+        return self._u.callback_query.message.get_bot()
 
 async def cb_nav_locked(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

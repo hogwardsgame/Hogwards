@@ -229,7 +229,11 @@ async def cmd_pets(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     pet_row = _get_pet(user_id)
     if pet_row:
         text, markup = _pet_panel(pet_row)
-        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+        try:
+            from handlers.images import send_with_image
+            await send_with_image(update.get_bot(), update.effective_chat.id, "pets", text, reply_markup=markup)
+        except Exception:
+            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
     else:
         user = get_user(user_id)
         text = (

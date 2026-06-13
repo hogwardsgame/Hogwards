@@ -218,17 +218,23 @@ async def cmd_forest(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     night  = _is_night()
     night_str = "🌙 *Ночь — бонус ×1.5 к наградам!*\n\n" if night else ""
 
-    await update.message.reply_text(
+    _forest_text = (
         f"🌲 *Запретный лес*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{night_str}"
         f"Тёмный, опасный, полный тайн лес у стен Хогвартса.\n"
         f"Только смелые находят здесь сокровища.\n\n"
         f"Вылазок сегодня: {used}/{limit}\n\n"
-        f"Выбери событие:",
-        parse_mode="Markdown",
-        reply_markup=_forest_keyboard(events)
+        f"Выбери событие:"
     )
+    try:
+        from handlers.images import send_with_image
+        await send_with_image(update.get_bot(), update.effective_chat.id, "forest",
+                              _forest_text, reply_markup=_forest_keyboard(events))
+    except Exception:
+        await update.message.reply_text(
+            _forest_text, parse_mode="Markdown", reply_markup=_forest_keyboard(events)
+        )
 
 async def cb_ff_event(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
