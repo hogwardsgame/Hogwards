@@ -542,18 +542,24 @@ def wizard_name_taken(name: str) -> bool:
         return row is not None
 
 
-def create_user(user_id: int, username: str, wizard_name: str, house: str, lang: str, starter_spell: str):
+def create_user(user_id: int, username: str, wizard_name: str, house: str, lang: str, starter_spell):
+    """starter_spell может быть строкой (одно заклинание) или списком (несколько)."""
+    from config import STARTER_GOLD, STARTER_HP, STARTER_MANA
+    spells = starter_spell if isinstance(starter_spell, (list, tuple)) else [starter_spell]
     with get_conn() as conn:
         execute(conn, """
             INSERT INTO users (user_id, username, wizard_name, house, lang, gold, hp, max_hp, mana, max_mana)
-            VALUES (%s, %s, %s, %s, %s, 0, 100, 100, 50, 50)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id) DO NOTHING
-        """, user_id, username, wizard_name, house, lang)
+        """, user_id, username, wizard_name, house, lang,
+             STARTER_GOLD, STARTER_HP, STARTER_HP, STARTER_MANA, STARTER_MANA)
         execute(conn, "INSERT INTO user_stats (user_id) VALUES (%s) ON CONFLICT DO NOTHING", user_id)
-        execute(conn, """
-            INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s)
-            ON CONFLICT DO NOTHING
-        """, user_id, starter_spell)
+        for sid in spells:
+            if sid:
+                execute(conn, """
+                    INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s)
+                    ON CONFLICT DO NOTHING
+                """, user_id, sid)
 
 
 def add_item_to_inventory(user_id: int, item_id: str, quantity: int = 1):
@@ -1094,3 +1100,26 @@ def reset_player(user_id: int):
                 cur.execute("ROLLBACK TO SAVEPOINT sp_user")
                 logger.error("reset_player FAILED to delete user %s: %s", user_id, e)
                 raise
+
+
+def ensure_attack_spell(user_id: int):
+    """Гарантирует, что у игрока есть хотя бы одно атакующее заклинание.
+    Для старых игроков, у которых на старте был только щит/лечение.
+    """
+    from game.spells import SPELLS
+    try:
+        with get_conn() as conn:
+            rows = fetchall(conn, "SELECT spell_id FROM user_spells WHERE user_id=%s", user_id)
+            owned = {r["spell_id"] for r in rows}
+            # Есть ли хоть одно атакующее (с уроном)?
+            has_attack = any(SPELLS.get(s, {}).get("damage", 0) > 0 for s in owned)
+            if not has_attack:
+                # Выдаём базовую атаку
+                execute(conn, """
+                    INSERT INTO user_spells (user_id, spell_id) VALUES (%s, 'expelliarmus')
+                    ON CONFLICT DO NOTHING
+                """, user_id)
+                return True
+    except Exception:
+        pass
+    return False
