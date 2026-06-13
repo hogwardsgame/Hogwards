@@ -186,6 +186,12 @@ def main():
     app.add_handler(TypeHandler(_Upd, _track_activity), group=99)
 
     logger.info("Hogwarts Bot запускается...")
+    # Запускаем Mini App API параллельно с ботом
+    try:
+        from webapp_api import run_api_server
+        run_api_server()
+    except Exception as e:
+        logger.warning("Mini App API не запущен: %s", e)
     app.run_polling(drop_pending_updates=True)
 
 
