@@ -820,36 +820,89 @@ def format_hp_bar(current: int, maximum: int, length: int = 10) -> str:
     return char * filled + "░" * (length - filled)
 
 
-def format_pvp_panel(state: dict) -> str:
-    """Красивая панель PvP-боя."""
+def format_hp_bar_color(current: int, maximum: int, length: int = 10) -> str:
+    """Цветной HP-бар эмодзи-квадратами — мгновенно читается."""
+    if maximum <= 0:
+        return "⬛" * length
+    ratio = max(0.0, min(1.0, current / maximum))
+    filled = int(round(ratio * length))
+    if ratio > 0.6:
+        fill = "🟩"
+    elif ratio > 0.3:
+        fill = "🟨"
+    else:
+        fill = "🟥"
+    return fill * filled + "⬛" * (length - filled)
+
+
+def format_mana_bar_color(current: int, maximum: int, length: int = 8) -> str:
+    """Цветной бар маны."""
+    if maximum <= 0:
+        return "⬛" * length
+    ratio = max(0.0, min(1.0, current / maximum))
+    filled = int(round(ratio * length))
+    return "🟦" * filled + "⬛" * (length - filled)
+
+
+def ultimate_bar(charge: int, maximum: int = 100, length: int = 10) -> str:
+    """Шкала ультимейта."""
+    ratio = max(0.0, min(1.0, charge / maximum))
+    filled = int(round(ratio * length))
+    if charge >= maximum:
+        return "🔥" * length + "  ⚡ГОТОВ!"
+    return "🟪" * filled + "⬛" * (length - filled) + f"  {charge}%"
+
+
+def format_pvp_panel(state: dict, flash: str = "") -> str:
+    """Красивая панель PvP-боя с цветными барами и шкалой ультимейта."""
     p  = state["player"]
     o  = state["opponent"]
     ps = format_battle_status(state["player_status"])
     os = format_battle_status(state["opponent_status"])
 
-    p_bar = format_hp_bar(state["player_hp"], p["max_hp"])
-    o_bar = format_hp_bar(state["opponent_hp"], o["max_hp"])
+    p_bar = format_hp_bar_color(state["player_hp"], p["max_hp"])
+    o_bar = format_hp_bar_color(state["opponent_hp"], o["max_hp"])
 
-    p_mana_bar = format_hp_bar(state["player_mana"], p["max_mana"], 6)
-    o_mana_bar = format_hp_bar(state["opponent_mana"], o["max_mana"], 6)
+    p_mana_bar = format_mana_bar_color(state["player_mana"], p["max_mana"])
+    o_mana_bar = format_mana_bar_color(state["opponent_mana"], o["max_mana"])
 
     p_house = HOUSE_EMOJI.get(p.get("house", ""), "🏠")
     o_house = HOUSE_EMOJI.get(o.get("house", ""), "🏠")
 
+    # Шкала ультимейта для того, чей ход
+    p_ult = state.get("player_ult", 0)
+    o_ult = state.get("opponent_ult", 0)
+
     log_tail = "\n".join(state["log"][-5:])
 
-    turn_marker = "⚡ *Твой ход*" if state.get("current_turn") == "player" else "⏳ Ход противника"
+    if state.get("current_turn") == "player":
+        turn_marker = f"⚡ *Ход: {p['wizard_name']}*"
+    else:
+        turn_marker = f"⏳ Ходит: {o['wizard_name']}"
+
+    flash_line = f"\n{flash}\n" if flash else ""
+
+    # Защитная стойка индикатор
+    p_guard = " 🛡️" if state.get("player_guard") else ""
+    o_guard = " 🛡️" if state.get("opponent_guard") else ""
 
     return (
-        f"⚔️ *Дуэль* | Ход {state.get('turn_number', 1)}\n"
+        f"⚔️ *ДУЭЛЬ* — Ход {state.get('turn_number', 1)}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{p_house} *{p['wizard_name']}* {ps}\n"
-        f"❤️ `[{p_bar}]` {state['player_hp']}/{p['max_hp']}\n"
-        f"💧 `[{p_mana_bar}]` {state['player_mana']}/{p['max_mana']}\n"
+        f"{p_house} *{p['wizard_name']}*{p_guard} {ps}\n"
+        f"❤️ {p_bar}\n"
+        f"   {state['player_hp']}/{p['max_hp']} HP\n"
+        f"💧 {p_mana_bar} {state['player_mana']}/{p['max_mana']}\n"
+        f"⚡ {ultimate_bar(p_ult)}\n"
         f"\n"
-        f"{o_house} *{o['wizard_name']}* {os}\n"
-        f"❤️ `[{o_bar}]` {state['opponent_hp']}/{o['max_hp']}\n"
-        f"💧 `[{o_mana_bar}]` {state['opponent_mana']}/{o['max_mana']}\n"
+        f"⚔️ ⚔️ ⚔️\n"
+        f"\n"
+        f"{o_house} *{o['wizard_name']}*{o_guard} {os}\n"
+        f"❤️ {o_bar}\n"
+        f"   {state['opponent_hp']}/{o['max_hp']} HP\n"
+        f"💧 {o_mana_bar} {state['opponent_mana']}/{o['max_mana']}\n"
+        f"⚡ {ultimate_bar(o_ult)}\n"
+        f"{flash_line}"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{log_tail}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
