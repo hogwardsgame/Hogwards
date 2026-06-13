@@ -125,14 +125,62 @@ async def handle_profile(request):
         "gold":       user.get("gold", 0),
         "id":         user_id,
     }
+
+    # Титул
+    data["title"] = user.get("title") or ""
+
+    # Винрейт дуэлей
+    try:
+        from database import get_conn as _gc, fetchrow as _fr
+        with _gc() as conn:
+            st = _fr(conn, "SELECT pvp_wins, pvp_losses FROM user_stats WHERE user_id=%s", int(user_id))
+        wins = (st or {}).get("pvp_wins", 0) or 0
+        losses = (st or {}).get("pvp_losses", 0) or 0
+        total = wins + losses
+        data["pvpWins"] = wins
+        data["pvpLosses"] = losses
+        data["winrate"] = (str(round(wins / total * 100)) + "%") if total else "—"
+    except Exception:
+        data["pvpWins"] = 0; data["pvpLosses"] = 0; data["winrate"] = "—"
+
+    # Ранг в дуэльной лиге (ELO + дивизион)
+    try:
+        from handlers.duel_league import _get_rating, _get_division
+        r = _get_rating(int(user_id))
+        elo = r.get("elo", 1000)
+        div_name, _ = _get_division(elo)
+        data["elo"] = elo
+        data["division"] = div_name
+    except Exception:
+        data["elo"] = 0; data["division"] = ""
+
+    # Питомец
+    try:
+        from handlers.pets import _get_pet, PETS, _get_stage
+        pet = _get_pet(int(user_id))
+        if pet:
+            pinfo = PETS.get(pet.get("pet_id"), {})
+            stage = _get_stage(pet.get("level", 1))
+            stages = pinfo.get("stages", [])
+            pemoji = stages[stage]["emoji"] if stage < len(stages) else pinfo.get("emoji", "🐾")
+            pname = stages[stage]["name"] if stage < len(stages) else pinfo.get("name", "Питомец")
+            data["pet"] = {"emoji": pemoji, "name": pname, "level": pet.get("level", 1)}
+        else:
+            data["pet"] = None
+    except Exception:
+        data["pet"] = None
+
     return _cors(web.json_response(data))
 
 
 async def handle_leaderboard(request):
-    """Топ игроков по уровню. Не требует авторизации (публичный рейтинг)."""
+    """Топ игроков. Категория через ?cat=level|gold|pvp. Публичный."""
+    cat = request.query.get("cat", "level")
+    if cat not in ("level", "gold", "pvp"):
+        cat = "level"
     try:
         from database import get_leaderboard
-        rows = get_leaderboard("level", 15)
+        rows = get_leaderboard(cat, 15)
     except Exception as e:
         logger.warning("leaderboard: %s", e)
         rows = []
@@ -142,13 +190,19 @@ async def handle_leaderboard(request):
     }
     top = []
     for i, r in enumerate(rows, 1):
+        if cat == "gold":
+            metric = str(r.get("gold", 0)) + " 💰"
+        elif cat == "pvp":
+            metric = str(r.get("pvp_wins", 0)) + " 🏆"
+        else:
+            metric = "ур. " + str(r.get("level", 1))
         top.append({
             "place": i,
             "name":  r.get("wizard_name", "—"),
             "house": house_emojis.get(r.get("house"), "🏰"),
-            "level": r.get("level", 1),
+            "metric": metric,
         })
-    return _cors(web.json_response({"top": top}))
+    return _cors(web.json_response({"top": top, "cat": cat}))
 
 
 async def handle_inventory(request):
