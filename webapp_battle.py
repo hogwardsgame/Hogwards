@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Активные бои: user_id -> state
 _battles: dict[int, dict] = {}
+_win_streaks: dict[int, int] = {}
 # Чистим старые бои (если игрок ушёл): храним не дольше 30 минут
 _BATTLE_TTL = 1800
 
@@ -203,6 +204,7 @@ def cast(user_id: int, spell_id: str) -> dict:
         st["over"] = True
         st["turn"] = "over"
         st["result"] = "lose"
+        _win_streaks[user_id] = 0
         st["log"].append("💀 Поражение...")
         return _public_state(user_id)
 
@@ -213,12 +215,13 @@ def cast(user_id: int, spell_id: str) -> dict:
 
 
 def _give_reward(user_id: int, monster: dict) -> dict:
-    """Выдать награду за победу (xp/gold)."""
+    """Выдать награду за победу (xp/gold/предмет) и обновить серию побед."""
     from database import add_xp, add_gold
     xp_range = monster.get("xp_reward", (10, 20))
     gold_range = monster.get("gold_reward", (3, 10))
     xp = random.randint(xp_range[0], xp_range[1]) if isinstance(xp_range, (tuple, list)) else int(xp_range)
     gold = random.randint(gold_range[0], gold_range[1]) if isinstance(gold_range, (tuple, list)) else int(gold_range)
+    item_info = None
     try:
         add_xp(user_id, xp)
         add_gold(user_id, gold)
@@ -228,9 +231,30 @@ def _give_reward(user_id: int, monster: dict) -> dict:
             add_pet_xp(user_id, 10)
         except Exception:
             pass
+        # Дроп предмета
+        try:
+            from game.drop_system import monster_drop
+            from database import add_item_to_inventory
+            from game.items import item_display_name
+            drop = monster_drop(monster, luck_modifier=1.0)
+            if drop.get("item"):
+                it = drop["item"]
+                iid = it.get("id") if isinstance(it, dict) else it
+                if iid:
+                    add_item_to_inventory(user_id, iid, 1)
+                    from game.items import ITEMS
+                    idata = ITEMS.get(iid, {})
+                    item_info = {
+                        "name": item_display_name(idata, "ru") if idata else iid,
+                        "emoji": idata.get("emoji", "📦"),
+                    }
+        except Exception as e:
+            logger.warning("pve drop: %s", e)
+        # Серия побед (в памяти на сессию)
+        _win_streaks[user_id] = _win_streaks.get(user_id, 0) + 1
     except Exception as e:
         logger.warning("pve reward: %s", e)
-    return {"xp": xp, "gold": gold}
+    return {"xp": xp, "gold": gold, "item": item_info, "streak": _win_streaks.get(user_id, 1)}
 
 
 def get_state(user_id: int) -> dict:
