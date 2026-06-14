@@ -158,15 +158,16 @@ def get_incoming(user_id: int) -> dict:
 
 
 def respond_invite(user_id: int, invite_id: str, accept: bool) -> dict:
-    """Принять или отклонить приглашение."""
+    """Принять или отклонить приглашение. При принятии создаётся боевая комната."""
     inv = _invites.get(invite_id)
     if not inv or inv["to_id"] != user_id:
         return {"ok": False, "msg": "Приглашение не найдено или истекло"}
     if accept:
         inv["status"] = "accepted"
-        # На следующем шаге здесь будет создание боевой комнаты
-        return {"ok": True, "accepted": True, "msg": "Вызов принят! (бой — на следующем шаге)",
-                "opponentId": inv["from_id"]}
+        room_id = _create_room(inv["from_id"], inv["to_id"])
+        inv["room_id"] = room_id
+        return {"ok": True, "accepted": True, "msg": "Вызов принят! Бой начинается...",
+                "opponentId": inv["from_id"], "roomId": room_id}
     else:
         inv["status"] = "declined"
         return {"ok": True, "accepted": False, "msg": "Вызов отклонён"}
@@ -177,4 +178,202 @@ def check_invite_status(user_id: int, invite_id: str) -> dict:
     inv = _invites.get(invite_id)
     if not inv:
         return {"status": "expired"}
-    return {"status": inv["status"], "opponentId": inv["to_id"]}
+    return {"status": inv["status"], "opponentId": inv["to_id"], "roomId": inv.get("room_id")}
+
+
+# ── Боевые комнаты (Шаг 2-3): состояние боя + ходы ──────────────────────────
+_rooms: dict[str, dict] = {}
+_ROOM_TTL = 600       # комната живёт 10 минут
+_TURN_TIME = 40       # секунд на ход
+
+
+def _cleanup_rooms():
+    now = time.time()
+    dead = [rid for rid, r in _rooms.items() if now - r.get("ts", now) > _ROOM_TTL]
+    for rid in dead:
+        _rooms.pop(rid, None)
+
+
+def _combat(user: dict) -> dict:
+    return {
+        "user_id": user["user_id"], "wizard_name": user["wizard_name"],
+        "house": user.get("house", ""), "max_hp": user["max_hp"], "max_mana": user["max_mana"],
+        "attack": user["attack"], "defense": user["defense"],
+        "speed": user["speed"], "luck": user.get("luck", 5), "level": user.get("level", 1),
+    }
+
+
+def _create_room(p1_id: int, p2_id: int) -> str:
+    """Создать боевую комнату для двух игроков."""
+    _cleanup_rooms()
+    from database import get_user, get_user_spells
+    from game.battle_engine import fresh_status
+    u1, u2 = get_user(p1_id), get_user(p2_id)
+    if not u1 or not u2:
+        return ""
+    room_id = f"room_{p1_id}_{p2_id}_{int(time.time())}"
+    s1 = [r["spell_id"] for r in (get_user_spells(p1_id) or [])] or ["expelliarmus"]
+    s2 = [r["spell_id"] for r in (get_user_spells(p2_id) or [])] or ["expelliarmus"]
+    c1, c2 = _combat(u1), _combat(u2)
+    first = p1_id if c1["speed"] >= c2["speed"] else p2_id
+    _rooms[room_id] = {
+        "p1": c1, "p2": c2,
+        "spells": {p1_id: s1, p2_id: s2},
+        "hp": {p1_id: c1["max_hp"], p2_id: c2["max_hp"]},
+        "mana": {p1_id: c1["max_mana"], p2_id: c2["max_mana"]},
+        "status": {p1_id: fresh_status(), p2_id: fresh_status()},
+        "prev_spell": {p1_id: None, p2_id: None},
+        "turn": first,
+        "turn_deadline": time.time() + _TURN_TIME,
+        "log": ["⚔️ Дуэль началась!"],
+        "over": False, "winner": None,
+        "last_turn": None,
+        "ts": time.time(),
+    }
+    return room_id
+
+
+def _spell_brief_pvp(spell_id: str):
+    from game.spells import SPELLS, spell_display_name
+    from game.battle_engine import element_badge
+    s = SPELLS.get(spell_id, {})
+    return {"id": spell_id, "name": spell_display_name(spell_id, "ru"),
+            "emoji": s.get("emoji", "✨"), "mana": s.get("mana", 0),
+            "damage": s.get("damage", 0), "heal": s.get("heal", 0),
+            "element": element_badge(s)}
+
+
+def get_battle_state(user_id: int, room_id: str) -> dict:
+    """Состояние боя глазами конкретного игрока."""
+    r = _rooms.get(room_id)
+    if not r:
+        return {"active": False, "error": "no_room"}
+    # Определяем «я» и «соперник»
+    if user_id == r["p1"]["user_id"]:
+        me, foe = r["p1"], r["p2"]
+    elif user_id == r["p2"]["user_id"]:
+        me, foe = r["p2"], r["p1"]
+    else:
+        return {"active": False, "error": "not_in_room"}
+    my_id, foe_id = me["user_id"], foe["user_id"]
+
+    # Авто-пропуск хода при таймауте (анти-зависание)
+    if not r["over"] and time.time() > r["turn_deadline"]:
+        idle = r["turn"]
+        other = r["p2"]["user_id"] if idle == r["p1"]["user_id"] else r["p1"]["user_id"]
+        idle_max_mana = r["p1"]["max_mana"] if idle == r["p1"]["user_id"] else r["p2"]["max_mana"]
+        r["mana"][idle] = min(idle_max_mana, r["mana"][idle] + 10)
+        r["turn"] = other
+        r["turn_deadline"] = time.time() + _TURN_TIME
+        r["log"].append("⏱ Ход пропущен (таймаут)")
+
+    return {
+        "active": True,
+        "roomId": room_id,
+        "me": {"name": me["wizard_name"], "house": me["house"],
+               "hp": r["hp"][my_id], "maxHp": me["max_hp"],
+               "mana": r["mana"][my_id], "maxMana": me["max_mana"]},
+        "foe": {"name": foe["wizard_name"], "house": foe["house"],
+                "hp": r["hp"][foe_id], "maxHp": foe["max_hp"],
+                "mana": r["mana"][foe_id], "maxMana": foe["max_mana"]},
+        "yourTurn": (r["turn"] == my_id) and not r["over"],
+        "spells": [_spell_brief_pvp(s) for s in r["spells"][my_id]],
+        "log": r["log"][-5:],
+        "over": r["over"],
+        "youWon": (r["winner"] == my_id) if r["over"] else None,
+        "timeLeft": max(0, int(r["turn_deadline"] - time.time())) if not r["over"] else 0,
+        "lastTurn": r.get("last_turn"),
+    }
+
+
+def battle_cast(user_id: int, room_id: str, spell_id: str) -> dict:
+    """Игрок применяет заклинание (только в свой ход)."""
+    from game.battle_engine import resolve_turn
+    from game.spells import SPELLS, spell_display_name
+    r = _rooms.get(room_id)
+    if not r or r["over"]:
+        return get_battle_state(user_id, room_id)
+    if r["turn"] != user_id:
+        return get_battle_state(user_id, room_id)
+    if spell_id not in r["spells"].get(user_id, []):
+        return get_battle_state(user_id, room_id)
+
+    # Кто атакующий, кто защищающийся
+    if user_id == r["p1"]["user_id"]:
+        atk, dfn = r["p1"], r["p2"]
+    else:
+        atk, dfn = r["p2"], r["p1"]
+    atk_id, dfn_id = atk["user_id"], dfn["user_id"]
+
+    spell = SPELLS.get(spell_id, {})
+    if r["mana"][atk_id] < spell.get("mana", 0):
+        r["log"].append("💧 Недостаточно маны!")
+        return get_battle_state(user_id, room_id)
+
+    res = resolve_turn(spell_id, atk, dfn, r["status"][atk_id], r["status"][dfn_id],
+                       r["hp"][atk_id], r["hp"][dfn_id], r["mana"][atk_id],
+                       prev_spell_id=r["prev_spell"][atk_id])
+    dmg = max(0, r["hp"][dfn_id] - res["defender_hp"])
+    r["hp"][atk_id] = res["attacker_hp"]
+    r["hp"][dfn_id] = res["defender_hp"]
+    r["mana"][atk_id] = max(0, r["mana"][atk_id] - res["mana_cost"])
+    r["status"][atk_id] = res["new_atk_status"]
+    r["status"][dfn_id] = res["new_def_status"]
+    r["prev_spell"][atk_id] = spell_id
+
+    from game.battle_engine import element_badge
+    sname = spell_display_name(spell_id, "ru")
+    line = f"{atk['wizard_name']}: {sname}"
+    if res.get("crit"): line = "💥 " + line + " (КРИТ!)"
+    r["log"].append(line)
+    r["last_turn"] = {
+        "by": atk_id, "dmg": dmg, "heal": res.get("heal", 0) or 0,
+        "crit": bool(res.get("crit")), "element": element_badge(spell),
+    }
+
+    # Проверка победы
+    if r["hp"][dfn_id] <= 0:
+        r["over"] = True
+        r["winner"] = atk_id
+        r["log"].append(f"🏆 {atk['wizard_name']} побеждает!")
+        _finish_battle(r, atk_id, dfn_id)
+        return get_battle_state(user_id, room_id)
+
+    # Передаём ход, реген маны защищающемуся к его ходу
+    r["mana"][dfn_id] = min(dfn["max_mana"], r["mana"][dfn_id] + 10)
+    r["turn"] = dfn_id
+    r["turn_deadline"] = time.time() + _TURN_TIME
+    return get_battle_state(user_id, room_id)
+
+
+def battle_flee(user_id: int, room_id: str) -> dict:
+    """Сдаться/выйти — соперник побеждает."""
+    r = _rooms.get(room_id)
+    if not r or r["over"]:
+        return {"active": False}
+    foe_id = r["p2"]["user_id"] if user_id == r["p1"]["user_id"] else r["p1"]["user_id"]
+    r["over"] = True
+    r["winner"] = foe_id
+    r["log"].append("🏳️ Соперник сдался!")
+    _finish_battle(r, foe_id, user_id)
+    return get_battle_state(user_id, room_id)
+
+
+def _finish_battle(r: dict, winner_id: int, loser_id: int):
+    """Начислить статистику, ELO и награды."""
+    try:
+        from database import get_conn, execute, add_gold, add_xp
+        with get_conn() as conn:
+            execute(conn, "INSERT INTO user_stats (user_id) VALUES (%s) ON CONFLICT DO NOTHING", winner_id)
+            execute(conn, "INSERT INTO user_stats (user_id) VALUES (%s) ON CONFLICT DO NOTHING", loser_id)
+            execute(conn, "UPDATE user_stats SET pvp_wins=pvp_wins+1, pvp_total=pvp_total+1 WHERE user_id=%s", winner_id)
+            execute(conn, "UPDATE user_stats SET pvp_losses=pvp_losses+1, pvp_total=pvp_total+1 WHERE user_id=%s", loser_id)
+        try:
+            from handlers.duel_league import update_elo
+            update_elo(winner_id, loser_id)
+        except Exception:
+            pass
+        add_gold(winner_id, 60)
+        add_xp(winner_id, 90)
+    except Exception as e:
+        logger.warning("live finish: %s", e)

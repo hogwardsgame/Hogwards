@@ -851,6 +851,16 @@ async def handle_liveduel(request):
         elif action == "check_status":
             iid = body.get("inviteId", "")
             return _cors(web.json_response(wd.check_invite_status(user_id, iid)))
+        elif action == "battle_state":
+            rid = body.get("roomId", "")
+            return _cors(web.json_response(wd.get_battle_state(user_id, rid)))
+        elif action == "battle_cast":
+            rid = body.get("roomId", "")
+            spell = body.get("spell", "")
+            return _cors(web.json_response(wd.battle_cast(user_id, rid, spell)))
+        elif action == "battle_flee":
+            rid = body.get("roomId", "")
+            return _cors(web.json_response(wd.battle_flee(user_id, rid)))
         elif action == "toggle_block":
             return _cors(web.json_response(wd.toggle_block(user_id)))
         elif action == "block_status":
