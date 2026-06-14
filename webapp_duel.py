@@ -257,15 +257,25 @@ def get_battle_state(user_id: int, room_id: str) -> dict:
         return {"active": False, "error": "not_in_room"}
     my_id, foe_id = me["user_id"], foe["user_id"]
 
-    # Авто-пропуск хода при таймауте (анти-зависание)
+    # Авто-обработка таймаута хода (анти-зависание)
     if not r["over"] and time.time() > r["turn_deadline"]:
         idle = r["turn"]
         other = r["p2"]["user_id"] if idle == r["p1"]["user_id"] else r["p1"]["user_id"]
-        idle_max_mana = r["p1"]["max_mana"] if idle == r["p1"]["user_id"] else r["p2"]["max_mana"]
-        r["mana"][idle] = min(idle_max_mana, r["mana"][idle] + 10)
-        r["turn"] = other
-        r["turn_deadline"] = time.time() + _TURN_TIME
-        r["log"].append("⏱ Ход пропущен (таймаут)")
+        r["timeouts"] = r.get("timeouts", {})
+        r["timeouts"][idle] = r["timeouts"].get(idle, 0) + 1
+        # Два пропуска подряд = техническое поражение
+        if r["timeouts"][idle] >= 2:
+            r["over"] = True
+            r["winner"] = other
+            idle_name = r["p1"]["wizard_name"] if idle == r["p1"]["user_id"] else r["p2"]["wizard_name"]
+            r["log"].append(f"⏱ {idle_name} не отвечает — техническое поражение")
+            _finish_battle(r, other, idle)
+        else:
+            idle_max_mana = r["p1"]["max_mana"] if idle == r["p1"]["user_id"] else r["p2"]["max_mana"]
+            r["mana"][idle] = min(idle_max_mana, r["mana"][idle] + 10)
+            r["turn"] = other
+            r["turn_deadline"] = time.time() + _TURN_TIME
+            r["log"].append("⏱ Ход пропущен (таймаут)")
 
     return {
         "active": True,
@@ -320,6 +330,8 @@ def battle_cast(user_id: int, room_id: str, spell_id: str) -> dict:
     r["status"][atk_id] = res["new_atk_status"]
     r["status"][dfn_id] = res["new_def_status"]
     r["prev_spell"][atk_id] = spell_id
+    if r.get("timeouts"):
+        r["timeouts"][atk_id] = 0
 
     from game.battle_engine import element_badge
     sname = spell_display_name(spell_id, "ru")
