@@ -123,6 +123,24 @@ RECIPES: dict[str, dict] = {
         "desc":        "Раскрывает заклинания противника в PvP.",
         "unlock":      "pvp_25",
     },
+    "luck_brew": {
+        "name":        "Зелье удачи",
+        "emoji":       "🍀",
+        "rarity":      "rare",
+        "ingredients": {"phoenix_feather": 1, "dittany": 2, "mandrake_root": 1},
+        "result_item": "luck_potion",
+        "desc":        "Повышает удачу — больше шансов на редкий дроп.",
+        "unlock":      "level_10",
+    },
+    "dragon_strength": {
+        "name":        "Зелье драконьей силы",
+        "emoji":       "💪",
+        "rarity":      "very_rare",
+        "ingredients": {"dragon_blood": 1, "bicorn_horn": 2, "dragon_heartstring": 1},
+        "result_item": "strength_potion",
+        "desc":        "Резко повышает атаку в бою.",
+        "unlock":      "boss_kill",
+    },
 }
 
 UNLOCK_LABELS = {
