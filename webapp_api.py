@@ -170,6 +170,52 @@ async def handle_profile(request):
     except Exception:
         data["pet"] = None
 
+    # Снаряжение (надетые предметы по слотам)
+    try:
+        from database import get_conn as _gc2, fetchall as _fa2
+        from game.items import ITEMS as _IT, item_display_name as _idn
+        with _gc2() as conn:
+            eq_rows = _fa2(conn, "SELECT slot, item_id, bonus FROM equipped_items WHERE user_id=%s", int(user_id))
+        slot_names = {"weapon": "Оружие", "armor": "Броня", "accessory": "Аксессуар",
+                      "helmet": "Шлем", "boots": "Обувь", "cloak": "Мантия"}
+        equipment = []
+        for r in eq_rows:
+            idata = _IT.get(r["item_id"], {})
+            equipment.append({
+                "slot": slot_names.get(r["slot"], r["slot"]),
+                "name": _idn(idata, "ru") if idata else r["item_id"],
+                "emoji": idata.get("emoji", "🔲"),
+                "bonus": r.get("bonus", 0),
+            })
+        data["equipment"] = equipment
+    except Exception:
+        data["equipment"] = []
+
+    # Палочка
+    try:
+        wood = user.get("wand_wood"); core = user.get("wand_core")
+        if wood or core:
+            data["wand"] = {"wood": wood or "—", "core": core or "—"}
+        else:
+            data["wand"] = None
+    except Exception:
+        data["wand"] = None
+
+    # Статистика
+    try:
+        from database import get_user_stats
+        s = get_user_stats(int(user_id)) or {}
+        data["stats"] = {
+            "pveKills":   s.get("pve_kills", 0) or 0,
+            "bossKills":  s.get("boss_kills", 0) or 0,
+            "worldBoss":  s.get("world_boss_kills", 0) or 0,
+            "potions":    s.get("potions_brewed", 0) or 0,
+            "combos":     s.get("combo_used", 0) or 0,
+            "goldEarned": s.get("gold_earned", 0) or 0,
+        }
+    except Exception:
+        data["stats"] = {}
+
     return _cors(web.json_response(data))
 
 
