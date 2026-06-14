@@ -872,6 +872,489 @@ async def handle_liveduel(request):
         return _cors(web.json_response({"ok": False, "error": "server"}))
 
 
+async def handle_league(request):
+    """Дуэльная лига: рейтинг игрока + топ дивизиона."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    from database import get_conn, fetchall, fetchrow
+    try:
+        from handlers.duel_league import _get_rating, _get_division, _next_division, DIVISIONS
+    except Exception as e:
+        logger.warning("league import: %s", e)
+        return _cors(web.json_response({"me": None, "top": []}))
+    try:
+        r = _get_rating(user_id)
+        elo = r.get("elo", 1000)
+        div_name, div_id = _get_division(elo)
+        nxt = _next_division(elo)
+        # Моё место
+        try:
+            with get_conn() as conn:
+                rank_row = fetchrow(conn, "SELECT COUNT(*)+1 AS rank FROM duel_league WHERE elo > %s", elo)
+                top_rows = fetchall(conn, """
+                    SELECT d.user_id, d.elo, d.wins, d.losses, u.wizard_name, u.house
+                    FROM duel_league d JOIN users u ON u.user_id = d.user_id
+                    ORDER BY d.elo DESC LIMIT 15
+                """)
+        except Exception:
+            rank_row = {"rank": "—"}; top_rows = []
+        house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
+        top = []
+        for i, t in enumerate(top_rows, 1):
+            dn, _ = _get_division(t["elo"])
+            top.append({
+                "place": i, "name": t["wizard_name"],
+                "house": house_emojis.get(t["house"], "🏰"),
+                "elo": t["elo"], "wins": t.get("wins", 0), "losses": t.get("losses", 0),
+                "division": dn.split()[0] if dn else "",
+                "isMe": t["user_id"] == user_id,
+            })
+        return _cors(web.json_response({
+            "me": {
+                "elo": elo, "division": div_name, "divisionId": div_id,
+                "rank": rank_row.get("rank", "—"),
+                "wins": r.get("wins", 0), "losses": r.get("losses", 0),
+                "peak": r.get("peak_elo", elo),
+                "nextDivision": nxt[0] if nxt else None,
+                "nextElo": nxt[1] if nxt else None,
+            },
+            "top": top,
+        }))
+    except Exception as e:
+        logger.warning("league: %s", e)
+        return _cors(web.json_response({"me": None, "top": []}))
+
+
+async def handle_quests(request):
+    """Ежедневные квесты с прогрессом."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    from database import get_user_stats
+    try:
+        from handlers.quests import _get_today_daily_quests
+    except Exception as e:
+        logger.warning("quests import: %s", e)
+        return _cors(web.json_response({"quests": []}))
+    try:
+        dailies = _get_today_daily_quests(user_id)
+        stats = get_user_stats(user_id) or {}
+        out = []
+        for q in dailies:
+            obj = q.get("objective", {})
+            otype = obj.get("type", "")
+            need = obj.get("count", 1)
+            # Прогресс по типу цели (приблизительно, из статистики)
+            cur = 0
+            if otype == "kill_monster":
+                cur = stats.get("pve_kills", 0) or 0
+            elif otype == "win_duel":
+                cur = stats.get("pvp_wins", 0) or 0
+            elif otype == "brew_potion":
+                cur = stats.get("potions_brewed", 0) or 0
+            elif otype == "kill_boss":
+                cur = stats.get("boss_kills", 0) or 0
+            reward = q.get("reward", {})
+            out.append({
+                "name": q["name"].get("ru") if isinstance(q.get("name"), dict) else q.get("name", ""),
+                "type": otype,
+                "cur": min(cur, need), "need": need,
+                "done": cur >= need,
+                "rewardXp": reward.get("xp", 0), "rewardGold": reward.get("gold", 0),
+            })
+        return _cors(web.json_response({"quests": out}))
+    except Exception as e:
+        logger.warning("quests: %s", e)
+        return _cors(web.json_response({"quests": []}))
+
+
+# Сессии уроков в памяти API
+_lesson_api_sessions: dict = {}
+
+async def handle_lessons(request):
+    """Уроки-викторина: action = subjects | question | answer."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "subjects")
+    import random as _rnd
+    try:
+        from handlers.lessons import SUBJECTS_INFO, QUESTIONS
+        from database import add_xp, add_gold
+    except Exception as e:
+        logger.warning("lessons import: %s", e)
+        return _cors(web.json_response({"subjects": []}))
+    try:
+        if action == "subjects":
+            subs = [{"id": sid, "name": info["name"], "teacher": info["teacher"], "emoji": info["emoji"]}
+                    for sid, info in SUBJECTS_INFO.items() if QUESTIONS.get(sid)]
+            return _cors(web.json_response({"subjects": subs}))
+        elif action == "question":
+            subject = body.get("subject", "")
+            pool = QUESTIONS.get(subject, [])
+            if not pool:
+                return _cors(web.json_response({"error": "no_questions"}))
+            idx = _rnd.randrange(len(pool))
+            q = pool[idx]
+            _lesson_api_sessions[user_id] = {"subject": subject, "idx": idx, "answer": q["answer"]}
+            return _cors(web.json_response({
+                "question": q["q"], "options": q["options"],
+                "subject": SUBJECTS_INFO.get(subject, {}).get("name", ""),
+            }))
+        elif action == "answer":
+            choice = int(body.get("choice", -1))
+            sess = _lesson_api_sessions.get(user_id)
+            if not sess:
+                return _cors(web.json_response({"error": "no_session"}))
+            correct = (choice == sess["answer"])
+            pool = QUESTIONS.get(sess["subject"], [])
+            q = pool[sess["idx"]] if sess["idx"] < len(pool) else {}
+            xp = gold = 0
+            if correct:
+                xp, gold = _rnd.randint(15, 30), _rnd.randint(5, 15)
+                try: add_xp(user_id, xp); add_gold(user_id, gold)
+                except Exception: pass
+            _lesson_api_sessions.pop(user_id, None)
+            return _cors(web.json_response({
+                "correct": correct, "correctIndex": sess["answer"],
+                "hint": q.get("hint", ""), "xp": xp, "gold": gold,
+            }))
+        else:
+            return _cors(web.json_response({"error": "unknown"}))
+    except Exception as e:
+        logger.warning("lessons %s: %s", action, e)
+        return _cors(web.json_response({"error": "server"}))
+
+
+async def handle_worldboss(request):
+    """Мировой босс: action = status | attack."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "status")
+    import random as _rnd
+    from database import (get_active_world_boss, get_world_boss_top, get_user,
+                          get_user_spells, get_daily_limit, increment_daily,
+                          record_world_boss_damage)
+    try:
+        from handlers.world_bosses import WORLD_BOSSES, _boss_name
+        from game.spells import SPELLS, spell_display_name
+        from config import DAILY_LIMITS
+    except Exception as e:
+        logger.warning("wb import: %s", e)
+        return _cors(web.json_response({"active": False}))
+
+    def _wb_payload(extra=None):
+        wb = get_active_world_boss()
+        if not wb:
+            return {"active": False}
+        boss = WORLD_BOSSES.get(wb["boss_id"], {})
+        top = get_world_boss_top(wb["id"])
+        user = get_user(user_id)
+        my_dmg = 0
+        top_list = []
+        for i, t in enumerate(top, 1):
+            is_me = t.get("wizard_name") == (user["wizard_name"] if user else "")
+            if is_me: my_dmg = t.get("damage", 0)
+            top_list.append({"place": i, "name": t.get("wizard_name", "?"),
+                             "damage": t.get("damage", 0), "isMe": is_me})
+        used = get_daily_limit(user_id, "world_boss")
+        limit = DAILY_LIMITS.get("world_boss", 1)
+        payload = {
+            "active": True,
+            "id": wb["id"],
+            "name": _boss_name(boss, "ru") if boss else wb["boss_id"],
+            "emoji": boss.get("emoji", "🐲"),
+            "hp": wb["current_hp"], "maxHp": wb["max_hp"],
+            "weakness": boss.get("weakness", ""),
+            "myDamage": my_dmg,
+            "attacksLeft": max(0, limit - used),
+            "top": top_list[:10],
+        }
+        if extra: payload.update(extra)
+        return payload
+
+    try:
+        if action == "attack":
+            wb = get_active_world_boss()
+            if not wb or wb["current_hp"] <= 0:
+                return _cors(web.json_response({"active": False, "msg": "Босс уже повержен!"}))
+            used = get_daily_limit(user_id, "world_boss")
+            if used >= DAILY_LIMITS.get("world_boss", 1):
+                return _cors(web.json_response(_wb_payload({"msg": "⚔️ Ты уже атаковал сегодня!", "ok": False})))
+            user = get_user(user_id)
+            boss = WORLD_BOSSES.get(wb["boss_id"], {})
+            spell_id = body.get("spell", "")
+            spell = SPELLS.get(spell_id)
+            if not spell:
+                # берём первое доступное атакующее
+                srows = [r["spell_id"] for r in (get_user_spells(user_id) or [])]
+                spell_id = next((s for s in srows if SPELLS.get(s, {}).get("damage", 0) > 0), "expelliarmus")
+                spell = SPELLS.get(spell_id, {"damage": 10})
+            base = spell.get("damage", 10)
+            atk_mult = 1 + (user["attack"] - 10) * 0.02
+            crit = _rnd.random() < (0.05 + user.get("luck", 5) * 0.005)
+            dmg = max(1, int(base * atk_mult * (1.5 if crit else 1.0)))
+            record_world_boss_damage(wb["id"], user_id, dmg)
+            increment_daily(user_id, "world_boss")
+            wb2 = get_active_world_boss()
+            killed = (not wb2) or wb2["current_hp"] <= 0
+            return _cors(web.json_response(_wb_payload({
+                "ok": True, "dmg": dmg, "crit": crit, "killed": killed,
+                "spellName": spell_display_name(spell_id, "ru"),
+                "msg": f"⚔️ {dmg} урона!" + (" 💥 КРИТ!" if crit else ""),
+            })))
+        else:
+            return _cors(web.json_response(_wb_payload()))
+    except Exception as e:
+        logger.warning("worldboss %s: %s", action, e)
+        return _cors(web.json_response({"active": False, "ok": False}))
+
+
+async def handle_tournament(request):
+    """Турнир: action = status | register."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "status")
+    from database import get_user, get_conn, execute
+    try:
+        import handlers.tournament as T
+        from config import TOURNAMENT_ENTRY_FEE
+    except Exception as e:
+        logger.warning("tour import: %s", e)
+        return _cors(web.json_response({"open": False}))
+
+    def _tour_payload(msg=None, ok=True):
+        user = get_user(user_id)
+        return {
+            "open": T._registration_open,
+            "registered": user_id in T._registrants,
+            "count": len(T._registrants),
+            "max": T.TOURNAMENT_MAX_PLAYERS,
+            "fee": TOURNAMENT_ENTRY_FEE,
+            "gold": user["gold"] if user else 0,
+            "rewards": [
+                {"place": "🥇 1 место", "xp": T.TOURNAMENT_REWARDS[1]["xp"], "gold": T.TOURNAMENT_REWARDS[1]["gold"]},
+                {"place": "🥈 2 место", "xp": T.TOURNAMENT_REWARDS[2]["xp"], "gold": T.TOURNAMENT_REWARDS[2]["gold"]},
+                {"place": "🥉 3 место", "xp": T.TOURNAMENT_REWARDS[3]["xp"], "gold": T.TOURNAMENT_REWARDS[3]["gold"]},
+            ],
+            "ok": ok, "msg": msg,
+        }
+
+    try:
+        if action == "register":
+            if not T._registration_open:
+                return _cors(web.json_response(_tour_payload("❌ Регистрация закрыта", ok=False)))
+            if user_id in T._registrants:
+                return _cors(web.json_response(_tour_payload("✅ Ты уже зарегистрирован", ok=False)))
+            user = get_user(user_id)
+            if user["gold"] < TOURNAMENT_ENTRY_FEE:
+                return _cors(web.json_response(_tour_payload(f"❌ Нужно {TOURNAMENT_ENTRY_FEE} 💰", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", TOURNAMENT_ENTRY_FEE, user_id)
+            T._registrants.append(user_id)
+            return _cors(web.json_response(_tour_payload("✅ Ты зарегистрирован на турнир!", ok=True)))
+        else:
+            return _cors(web.json_response(_tour_payload()))
+    except Exception as e:
+        logger.warning("tournament %s: %s", action, e)
+        return _cors(web.json_response({"open": False, "ok": False}))
+
+
+async def handle_teambattle(request):
+    """Командный бой 3×3: action = status | find | fight."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "status")
+    import random as _rnd
+    from database import (get_user, get_squad, get_squad_members, get_conn,
+                          fetchall, add_xp, add_gold)
+    try:
+        from config import TEAM_SIZE as _TS
+    except Exception:
+        _TS = 3
+    house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
+
+    def _power(members):
+        total = 0
+        for m in members:
+            u = get_user(m["user_id"])
+            if u: total += u["attack"]*2 + u["defense"] + u["max_hp"]//5 + u["level"]*3
+        return total
+    def _synergy(members):
+        houses = [get_user(m["user_id"]).get("house") for m in members if get_user(m["user_id"])]
+        bonus = 0
+        for h in set(houses):
+            c = houses.count(h)
+            if c >= 2: bonus += c*15
+        return bonus
+    def _roster(members):
+        out = []
+        for m in members[:_TS]:
+            u = get_user(m["user_id"])
+            if u: out.append({"name": u["wizard_name"], "house": house_emojis.get(u["house"],"🏰"),
+                              "level": u["level"], "attack": u["attack"]})
+        return out
+
+    user = get_user(user_id)
+    squad_id = user.get("squad_id") if user else None
+
+    try:
+        if not squad_id:
+            return _cors(web.json_response({"hasSquad": False}))
+        my_squad = get_squad(squad_id)
+        my_members = get_squad_members(squad_id)
+        if len(my_members) < _TS:
+            return _cors(web.json_response({"hasSquad": True, "enoughMembers": False,
+                "squadName": my_squad["name"] if my_squad else "",
+                "memberCount": len(my_members), "needed": _TS}))
+
+        if action == "find":
+            with get_conn() as conn:
+                squads = fetchall(conn, """
+                    SELECT s.id, s.name, COUNT(u.user_id) as cnt
+                    FROM squads s JOIN users u ON u.squad_id = s.id
+                    WHERE s.id != %s GROUP BY s.id, s.name
+                    HAVING COUNT(u.user_id) >= %s ORDER BY RANDOM() LIMIT 5
+                """, squad_id, _TS)
+            return _cors(web.json_response({"hasSquad": True, "enoughMembers": True,
+                "enemies": [{"id": s["id"], "name": s["name"], "count": s["cnt"]} for s in squads]}))
+
+        elif action == "fight":
+            enemy_id = int(body.get("enemyId", 0))
+            enemy_squad = get_squad(enemy_id)
+            enemy_members = get_squad_members(enemy_id)
+            if not enemy_squad or len(enemy_members) < _TS:
+                return _cors(web.json_response({"hasSquad": True, "ok": False, "msg": "Отряд недоступен"}))
+            pa, pb = _power(my_members), _power(enemy_members)
+            sa, sb = _synergy(my_members), _synergy(enemy_members)
+            ta = pa + sa + _rnd.randint(0,50)
+            tb = pb + sb + _rnd.randint(0,50)
+            iWon = ta >= tb
+            # Поединки бойцов
+            duels = []
+            for i in range(_TS):
+                a = get_user(my_members[i]["user_id"]) if i < len(my_members) else None
+                b = get_user(enemy_members[i]["user_id"]) if i < len(enemy_members) else None
+                if a and b:
+                    ar = a["attack"] + a["level"]*2 + _rnd.randint(0,30)
+                    br = b["attack"] + b["level"]*2 + _rnd.randint(0,30)
+                    aWin = ar >= br
+                    duels.append({
+                        "a": a["wizard_name"], "aHouse": house_emojis.get(a["house"],"🏰"),
+                        "b": b["wizard_name"], "bHouse": house_emojis.get(b["house"],"🏰"),
+                        "aWon": aWin,
+                    })
+            # Награды только участнику (упрощённо — игроку)
+            if iWon: add_xp(user_id, 150); add_gold(user_id, 80)
+            else: add_xp(user_id, 40); add_gold(user_id, 15)
+            return _cors(web.json_response({
+                "hasSquad": True, "ok": True, "iWon": iWon,
+                "myName": my_squad["name"], "enemyName": enemy_squad["name"],
+                "myPower": pa, "mySynergy": sa, "enemyPower": pb, "enemySynergy": sb,
+                "duels": duels,
+                "reward": {"xp": 150 if iWon else 40, "gold": 80 if iWon else 15},
+            }))
+        else:
+            return _cors(web.json_response({"hasSquad": True, "enoughMembers": True,
+                "squadName": my_squad["name"], "power": _power(my_members),
+                "synergy": _synergy(my_members), "roster": _roster(my_members)}))
+    except Exception as e:
+        logger.warning("teambattle %s: %s", action, e)
+        return _cors(web.json_response({"hasSquad": False, "ok": False}))
+
+
+async def handle_events(request):
+    """События: статус активного события + лидерборд."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    from datetime import datetime, timezone
+    try:
+        from handlers.events import _get_active_event, _get_event_leaderboard
+    except Exception as e:
+        logger.warning("events import: %s", e)
+        return _cors(web.json_response({"active": False}))
+    try:
+        ev = _get_active_event()
+        if not ev:
+            return _cors(web.json_response({"active": False}))
+        house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
+        top = []
+        try:
+            lb = _get_event_leaderboard(ev["id"])
+            for i, r in enumerate(lb, 1):
+                top.append({"place": i, "name": r.get("wizard_name", "?"),
+                            "house": house_emojis.get(r.get("house"), "🏰"),
+                            "damage": int(r.get("total_dmg") or 0)})
+        except Exception:
+            top = []
+        # Время до конца
+        ends = ev.get("ends_at")
+        time_left = ""
+        if ends:
+            if ends.tzinfo is None: ends = ends.replace(tzinfo=timezone.utc)
+            secs = int((ends - datetime.now(timezone.utc)).total_seconds())
+            if secs > 0:
+                d, rem = divmod(secs, 86400); h, _ = divmod(rem, 3600)
+                time_left = (f"{d}д {h}ч" if d else f"{h}ч")
+        data = ev.get("data") or {}
+        if isinstance(data, str):
+            import json as _j
+            try: data = _j.loads(data)
+            except Exception: data = {}
+        return _cors(web.json_response({
+            "active": True,
+            "type": ev.get("event_type", ""),
+            "title": data.get("title_ru") or data.get("title") or "Событие",
+            "desc": data.get("desc_ru") or data.get("desc") or "",
+            "emoji": data.get("emoji", "🎉"),
+            "timeLeft": time_left,
+            "top": top,
+            "hint": "Сражайся с событийным боссом в боте командой /events",
+        }))
+    except Exception as e:
+        logger.warning("events: %s", e)
+        return _cors(web.json_response({"active": False}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -904,6 +1387,20 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/pvp", handle_options)
     app.router.add_post("/api/liveduel", handle_liveduel)
     app.router.add_options("/api/liveduel", handle_options)
+    app.router.add_post("/api/league", handle_league)
+    app.router.add_options("/api/league", handle_options)
+    app.router.add_post("/api/quests", handle_quests)
+    app.router.add_options("/api/quests", handle_options)
+    app.router.add_post("/api/lessons", handle_lessons)
+    app.router.add_options("/api/lessons", handle_options)
+    app.router.add_post("/api/worldboss", handle_worldboss)
+    app.router.add_options("/api/worldboss", handle_options)
+    app.router.add_post("/api/tournament", handle_tournament)
+    app.router.add_options("/api/tournament", handle_options)
+    app.router.add_post("/api/teambattle", handle_teambattle)
+    app.router.add_options("/api/teambattle", handle_options)
+    app.router.add_post("/api/events", handle_events)
+    app.router.add_options("/api/events", handle_options)
     return app
 
 
