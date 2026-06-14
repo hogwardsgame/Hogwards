@@ -1355,6 +1355,292 @@ async def handle_events(request):
         return _cors(web.json_response({"active": False}))
 
 
+async def handle_squad(request):
+    """Отряды: action = status | create | browse | join | leave | disband."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "status")
+    from database import (get_user, get_squad, get_squad_members, create_squad,
+                          get_conn, execute, fetchall)
+    try:
+        from config import SQUAD_MAX_MEMBERS, SQUAD_CREATE_COST
+    except Exception:
+        SQUAD_MAX_MEMBERS, SQUAD_CREATE_COST = 5, 500
+    house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
+
+    def _status_payload(msg=None, ok=True):
+        user = get_user(user_id)
+        sid = user.get("squad_id") if user else None
+        if sid:
+            sq = get_squad(sid)
+            members = get_squad_members(sid)
+            roster = []
+            for m in members:
+                mu = get_user(m["user_id"])
+                roster.append({"name": m["wizard_name"], "level": m["level"],
+                               "house": house_emojis.get(mu["house"],"🏰") if mu else "🏰",
+                               "isLeader": sq and m["user_id"] == sq["leader_id"]})
+            return {"inSquad": True, "ok": ok, "msg": msg,
+                    "squadName": sq["name"] if sq else "",
+                    "isLeader": sq and sq["leader_id"] == user_id,
+                    "memberCount": len(members), "maxMembers": SQUAD_MAX_MEMBERS,
+                    "roster": roster}
+        return {"inSquad": False, "ok": ok, "msg": msg,
+                "gold": user["gold"] if user else 0, "createCost": SQUAD_CREATE_COST,
+                "maxMembers": SQUAD_MAX_MEMBERS}
+
+    try:
+        if action == "create":
+            user = get_user(user_id)
+            if user.get("squad_id"):
+                return _cors(web.json_response(_status_payload("Ты уже в отряде", ok=False)))
+            if user["gold"] < SQUAD_CREATE_COST:
+                return _cors(web.json_response(_status_payload(f"Нужно {SQUAD_CREATE_COST} 💰", ok=False)))
+            name = (body.get("name") or "").strip()[:24]
+            if len(name) < 2:
+                return _cors(web.json_response(_status_payload("Название 2-24 символа", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", SQUAD_CREATE_COST, user_id)
+            create_squad(name, user_id)
+            return _cors(web.json_response(_status_payload(f"✅ Отряд «{name}» создан!", ok=True)))
+        elif action == "browse":
+            with get_conn() as conn:
+                squads = fetchall(conn, """
+                    SELECT s.id, s.name, COUNT(u.user_id) as cnt
+                    FROM squads s LEFT JOIN users u ON u.squad_id = s.id
+                    GROUP BY s.id, s.name HAVING COUNT(u.user_id) < %s
+                    ORDER BY cnt DESC LIMIT 20
+                """, SQUAD_MAX_MEMBERS)
+            return _cors(web.json_response({"squads": [
+                {"id": s["id"], "name": s["name"], "count": s["cnt"], "max": SQUAD_MAX_MEMBERS}
+                for s in squads]}))
+        elif action == "join":
+            user = get_user(user_id)
+            if user.get("squad_id"):
+                return _cors(web.json_response(_status_payload("Ты уже в отряде", ok=False)))
+            sid = int(body.get("squadId", 0))
+            sq = get_squad(sid)
+            if not sq:
+                return _cors(web.json_response(_status_payload("Отряд не найден", ok=False)))
+            members = get_squad_members(sid)
+            if len(members) >= SQUAD_MAX_MEMBERS:
+                return _cors(web.json_response(_status_payload("Отряд заполнен", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET squad_id=%s WHERE user_id=%s", sid, user_id)
+            return _cors(web.json_response(_status_payload(f"✅ Ты вступил в «{sq['name']}»!", ok=True)))
+        elif action == "leave":
+            user = get_user(user_id)
+            sid = user.get("squad_id")
+            if not sid:
+                return _cors(web.json_response(_status_payload("Ты не в отряде", ok=False)))
+            sq = get_squad(sid)
+            if sq and sq["leader_id"] == user_id:
+                return _cors(web.json_response(_status_payload("Командир не может выйти — распусти отряд", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET squad_id=NULL WHERE user_id=%s", user_id)
+            return _cors(web.json_response(_status_payload("Ты покинул отряд", ok=True)))
+        elif action == "disband":
+            user = get_user(user_id)
+            sid = user.get("squad_id")
+            if not sid:
+                return _cors(web.json_response(_status_payload("Ты не в отряде", ok=False)))
+            sq = get_squad(sid)
+            if not sq or sq["leader_id"] != user_id:
+                return _cors(web.json_response(_status_payload("Только командир может распустить", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET squad_id=NULL WHERE squad_id=%s", sid)
+                execute(conn, "DELETE FROM squads WHERE id=%s", sid)
+            return _cors(web.json_response(_status_payload("Отряд распущен", ok=True)))
+        else:
+            return _cors(web.json_response(_status_payload()))
+    except Exception as e:
+        logger.warning("squad %s: %s", action, e)
+        return _cors(web.json_response({"inSquad": False, "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_trade(request):
+    """Торговля золотом: action = send (перевод по ID)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    from database import get_user, transfer_gold
+    try:
+        from config import TRADE_MIN_AMOUNT, TRADE_MAX_AMOUNT, TRADE_TAX_PERCENT
+    except Exception:
+        TRADE_MIN_AMOUNT, TRADE_MAX_AMOUNT, TRADE_TAX_PERCENT = 10, 100000, 5
+    action = body.get("action", "info")
+    try:
+        if action == "send":
+            target_id = int(body.get("targetId", 0))
+            amount = int(body.get("amount", 0))
+            if target_id == user_id:
+                return _cors(web.json_response({"ok": False, "msg": "Нельзя перевести самому себе"}))
+            target = get_user(target_id)
+            if not target:
+                return _cors(web.json_response({"ok": False, "msg": "Получатель с таким ID не найден"}))
+            if amount < TRADE_MIN_AMOUNT or amount > TRADE_MAX_AMOUNT:
+                return _cors(web.json_response({"ok": False, "msg": f"Сумма от {TRADE_MIN_AMOUNT} до {TRADE_MAX_AMOUNT}"}))
+            tax = max(1, int(amount * TRADE_TAX_PERCENT / 100))
+            sender = get_user(user_id)
+            if sender["gold"] < amount + tax:
+                return _cors(web.json_response({"ok": False, "msg": f"Не хватает золота (нужно {amount + tax} с учётом комиссии)"}))
+            transfer_gold(user_id, target_id, amount, tax)
+            return _cors(web.json_response({"ok": True,
+                "msg": f"✅ Переведено {amount} 💰 игроку {target['wizard_name']} (комиссия {tax})",
+                "gold": get_user(user_id)["gold"]}))
+        else:
+            user = get_user(user_id)
+            return _cors(web.json_response({"gold": user["gold"] if user else 0,
+                "minAmount": TRADE_MIN_AMOUNT, "maxAmount": TRADE_MAX_AMOUNT, "taxPercent": TRADE_TAX_PERCENT}))
+    except Exception as e:
+        logger.warning("trade %s: %s", action, e)
+        return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
+
+
+async def handle_wandcraft(request):
+    """Крафт палочки: action = info | craft."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "info")
+    import random as _rnd
+    from database import get_user, get_conn, execute, fetchall
+    try:
+        from handlers.wandcraft import (CORES, CRAFT_COST_GOLD, WAND_WOODS,
+                                        _get_inventory_ids, _available_ingredients, _ensure_table)
+        from game.items import ITEMS
+    except Exception as e:
+        logger.warning("wandcraft import: %s", e)
+        return _cors(web.json_response({"cores": []}))
+    try:
+        _ensure_table()
+        inv = _get_inventory_ids(user_id)
+        user = get_user(user_id)
+        if action == "craft":
+            core_id = body.get("core", "")
+            core = CORES.get(core_id)
+            if not core:
+                return _cors(web.json_response({"ok": False, "msg": "Сердцевина не найдена"}))
+            if inv.get(core_id, 0) < 1:
+                return _cors(web.json_response({"ok": False, "msg": "У тебя нет этой сердцевины"}))
+            if user["gold"] < CRAFT_COST_GOLD:
+                return _cors(web.json_response({"ok": False, "msg": f"Нужно {CRAFT_COST_GOLD} 💰"}))
+            ings = _available_ingredients(inv)
+            if sum(q for _, _, q in ings) < 2:
+                return _cors(web.json_response({"ok": False, "msg": "Нужно минимум 2 ингредиента"}))
+            to_consume = []; need = 2
+            for iid, item, qty in ings:
+                take = min(qty, need); to_consume.append((iid, take)); need -= take
+                if need <= 0: break
+            bonus = core["attack"]
+            for iid, take in to_consume:
+                item = ITEMS.get(iid, {})
+                rb = {"common":2,"uncommon":4,"rare":7,"very_rare":10,"epic":15}.get(item.get("rarity","common"),2)
+                bonus += rb * take
+            bonus += _rnd.randint(-3, 8); bonus = max(10, bonus)
+            wood = _rnd.choice(WAND_WOODS)
+            wand_name = f"{wood} палочка ({core['name']})"
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", CRAFT_COST_GOLD, user_id)
+                execute(conn, "UPDATE inventory SET quantity=quantity-1 WHERE user_id=%s AND item_id=%s", user_id, core_id)
+                for iid, take in to_consume:
+                    execute(conn, "UPDATE inventory SET quantity=quantity-%s WHERE user_id=%s AND item_id=%s", take, user_id, iid)
+                execute(conn, "UPDATE users SET wand_wood=%s, wand_core=%s, attack=attack+%s WHERE user_id=%s",
+                        wood, core["name"], bonus, user_id)
+            return _cors(web.json_response({"ok": True,
+                "msg": f"🪄 Создана {wand_name}! +{bonus} к атаке"}))
+        else:
+            cores = []
+            for cid, c in CORES.items():
+                cores.append({"id": cid, "name": c["name"], "attack": c["attack"],
+                              "have": inv.get(cid, 0) > 0})
+            ings = _available_ingredients(inv)
+            ing_count = sum(q for _, _, q in ings)
+            return _cors(web.json_response({
+                "cores": cores, "cost": CRAFT_COST_GOLD, "gold": user["gold"] if user else 0,
+                "ingredients": ing_count, "canCraft": ing_count >= 2,
+            }))
+    except Exception as e:
+        logger.warning("wandcraft %s: %s", action, e)
+        return _cors(web.json_response({"cores": [], "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_bank(request):
+    """Гринготтс: action = info | deposit | withdraw | collect."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "info")
+    from database import get_user, get_conn, execute
+    try:
+        from handlers.gringotts import (_get_account, _apply_interest, _calc_interest,
+                                        INTEREST_RATE, INTEREST_CAP, _ensure_tables)
+    except Exception as e:
+        logger.warning("bank import: %s", e)
+        return _cors(web.json_response({"balance": 0}))
+    try:
+        _ensure_tables()
+        # Начисляем накопленные проценты при любом обращении
+        acc = _get_account(user_id)
+        _apply_interest(user_id, acc)
+        acc = _get_account(user_id)
+        user = get_user(user_id)
+        balance = acc.get("balance", 0)
+
+        def _info(msg=None, ok=True):
+            nxt = min(int(balance * INTEREST_RATE), INTEREST_CAP)
+            return {"balance": balance, "gold": user["gold"] if user else 0,
+                    "rate": int(INTEREST_RATE*100), "cap": INTEREST_CAP,
+                    "nextInterest": nxt if balance > 0 else 0, "ok": ok, "msg": msg}
+
+        if action == "deposit":
+            amount = int(body.get("amount", 0))
+            if amount <= 0 or amount > user["gold"]:
+                return _cors(web.json_response(_info("Некорректная сумма", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", amount, user_id)
+                execute(conn, """INSERT INTO gringotts (user_id, balance, last_interest)
+                                 VALUES (%s,%s,NOW()) ON CONFLICT (user_id)
+                                 DO UPDATE SET balance=gringotts.balance+%s""", user_id, amount, amount)
+            user = get_user(user_id); acc = _get_account(user_id); balance = acc.get("balance", 0)
+            return _cors(web.json_response(_info(f"✅ Внесено {amount} 💰 в банк", ok=True)))
+        elif action == "withdraw":
+            amount = int(body.get("amount", 0))
+            if amount <= 0 or amount > balance:
+                return _cors(web.json_response(_info("Некорректная сумма", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE gringotts SET balance=balance-%s WHERE user_id=%s", amount, user_id)
+                execute(conn, "UPDATE users SET gold=gold+%s WHERE user_id=%s", amount, user_id)
+            user = get_user(user_id); acc = _get_account(user_id); balance = acc.get("balance", 0)
+            return _cors(web.json_response(_info(f"✅ Снято {amount} 💰 из банка", ok=True)))
+        else:
+            return _cors(web.json_response(_info()))
+    except Exception as e:
+        logger.warning("bank %s: %s", action, e)
+        return _cors(web.json_response({"balance": 0, "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -1401,6 +1687,14 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/teambattle", handle_options)
     app.router.add_post("/api/events", handle_events)
     app.router.add_options("/api/events", handle_options)
+    app.router.add_post("/api/squad", handle_squad)
+    app.router.add_options("/api/squad", handle_options)
+    app.router.add_post("/api/trade", handle_trade)
+    app.router.add_options("/api/trade", handle_options)
+    app.router.add_post("/api/wandcraft", handle_wandcraft)
+    app.router.add_options("/api/wandcraft", handle_options)
+    app.router.add_post("/api/bank", handle_bank)
+    app.router.add_options("/api/bank", handle_options)
     return app
 
 
