@@ -90,6 +90,17 @@ ZONES = {
         "main_boss_kills": 20,
         "drop_table": ["gillyweed", "flobberworm_mucus"],
     },
+    "knockturn_alley": {
+        "id": "knockturn_alley", "min_level": 8,
+        "name": {"ru": "Лютный переулок"},
+        "emoji": "🌃",
+        "desc_ru": "Мрачный переулок тёмной магии, полный опасных личностей и существ.",
+        "monsters": ["dark_collector", "hag_witch", "cursed_merchant"],
+        "boss": "borgin_master",
+        "boss_every": 5,
+        "main_boss_kills": 22,
+        "drop_table": ["bezoar", "lacewing_flies"],
+    },
 }
 
 MONSTERS: dict[str, dict] = {
@@ -538,6 +549,49 @@ MONSTERS: dict[str, dict] = {
         "spells": ["prank", "multiply"],
         "drop_chance": 0.18,
         "desc_ru": "Озорной дух, обожающий устраивать хаос в подземельях.",
+    },
+
+    # ─── Лютный переулок ────────────────────────────────────────────────────────
+    "dark_collector": {
+        "id": "dark_collector", "is_boss": False,
+        "name": {"ru": "Тёмный коллекционер"}, "emoji": "🕴️",
+        "hp": 115, "attack": 26, "defense": 13, "speed": 14,
+        "xp_reward": (24, 52), "gold_reward": (10, 30),
+        "ai": AIPattern.CUNNING,
+        "spells": ["curse_aura", "steal"],
+        "drop_chance": 0.22,
+        "desc_ru": "Торговец запретными артефактами. Не брезгует тёмной магией.",
+    },
+    "hag_witch": {
+        "id": "hag_witch", "is_boss": False,
+        "name": {"ru": "Старая карга"}, "emoji": "🧙‍♀️",
+        "hp": 100, "attack": 24, "defense": 11, "speed": 13,
+        "xp_reward": (22, 48), "gold_reward": (8, 24),
+        "ai": AIPattern.AGGRESSIVE,
+        "spells": ["blood_curse", "poison_bite"],
+        "drop_chance": 0.2,
+        "desc_ru": "Зловещая ведьма, торгующая жуткими снадобьями.",
+    },
+    "cursed_merchant": {
+        "id": "cursed_merchant", "is_boss": False,
+        "name": {"ru": "Проклятый торговец"}, "emoji": "👤",
+        "hp": 108, "attack": 25, "defense": 14, "speed": 12,
+        "xp_reward": (23, 50), "gold_reward": (12, 32),
+        "ai": AIPattern.CUNNING,
+        "spells": ["curse_aura", "darkness"],
+        "drop_chance": 0.2,
+        "desc_ru": "Торговец, носящий на себе проклятие собственного товара.",
+    },
+    "borgin_master": {
+        "id": "borgin_master", "is_boss": True,
+        "name": {"ru": "Хозяин Горбин и Бэрк"}, "emoji": "👹",
+        "hp": 340, "attack": 38, "defense": 22, "speed": 16,
+        "xp_reward": (120, 220), "gold_reward": (80, 180),
+        "ai": AIPattern.CUNNING,
+        "spells": ["blood_curse", "curse_aura", "soul_curse"],
+        "drop_chance": 1.0, "drop_min_rarity": "rare",
+        "desc_ru": "Владелец самой тёмной лавки переулка. Хранитель проклятых реликвий.",
+        "strategy_ru": "Опасен проклятиями — держи зелья исцеления наготове.",
     },
 }
 
