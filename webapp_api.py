@@ -410,6 +410,88 @@ async def handle_battle(request):
         return _cors(web.json_response({"active": False, "error": "server"}))
 
 
+async def handle_pet(request):
+    """Инфо о питомце или тренировка. action = info|train|feed."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "info")
+
+    from database import get_user, get_conn, fetchrow, execute
+    try:
+        from handlers.pets import (
+            _get_pet, PETS, _get_stage, _pet_xp_needed, _bonus_desc,
+            _add_pet_xp, PET_MAX_LEVEL, EVOLVE_LEVELS,
+        )
+    except Exception as e:
+        logger.warning("pet import: %s", e)
+        return _cors(web.json_response({"hasPet": False}))
+
+    def _pet_payload(msg=None, ok=True):
+        pet = _get_pet(user_id)
+        if not pet:
+            return {"hasPet": False, "ok": ok, "msg": msg}
+        pid = pet.get("pet_id")
+        pinfo = PETS.get(pid, {})
+        level = pet.get("level", 1)
+        stage = _get_stage(level)
+        stages = pinfo.get("stages", [])
+        if stage < len(stages):
+            pemoji = stages[stage].get("emoji", pinfo.get("emoji", "🐾"))
+            pname  = stages[stage].get("name", pinfo.get("name", "Питомец"))
+        else:
+            pemoji = pinfo.get("emoji", "🐾"); pname = pinfo.get("name", "Питомец")
+        xp = pet.get("xp", 0)
+        xp_need = _pet_xp_needed(level)
+        try:
+            bonus = _bonus_desc(pid, level)
+        except Exception:
+            bonus = ""
+        # След. эволюция
+        next_evo = None
+        for lvl in EVOLVE_LEVELS:
+            if level < lvl:
+                next_evo = lvl; break
+        return {
+            "hasPet": True, "ok": ok, "msg": msg,
+            "emoji": pemoji, "name": pname,
+            "level": level, "maxLevel": PET_MAX_LEVEL,
+            "xp": xp, "maxXp": xp_need,
+            "happiness": pet.get("happiness", 100),
+            "stage": stage + 1,
+            "bonus": bonus,
+            "nextEvo": next_evo,
+        }
+
+    try:
+        if action == "train":
+            pet = _get_pet(user_id)
+            if not pet:
+                return _cors(web.json_response({"hasPet": False, "ok": False, "msg": "Нет питомца"}))
+            user = get_user(user_id)
+            if user["gold"] < 50:
+                return _cors(web.json_response(_pet_payload("❌ Нужно 50 золота", ok=False)))
+            if pet.get("level", 1) >= PET_MAX_LEVEL:
+                return _cors(web.json_response(_pet_payload("Питомец уже максимального уровня!", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-50 WHERE user_id=%s", user_id)
+            leveled, evolved, new_level = _add_pet_xp(user_id, 40)
+            if evolved:   msg = f"🎉 Эволюция! Питомец достиг {new_level} уровня!"
+            elif leveled: msg = f"⬆️ Питомец вырос до {new_level} уровня!"
+            else:         msg = "✅ +40 опыта питомцу!"
+            return _cors(web.json_response(_pet_payload(msg, ok=True)))
+        else:
+            return _cors(web.json_response(_pet_payload()))
+    except Exception as e:
+        logger.warning("pet action: %s", e)
+        return _cors(web.json_response({"hasPet": False, "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -430,6 +512,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/equipbest", handle_options)
     app.router.add_post("/api/battle", handle_battle)
     app.router.add_options("/api/battle", handle_options)
+    app.router.add_post("/api/pet", handle_pet)
+    app.router.add_options("/api/pet", handle_options)
     return app
 
 
