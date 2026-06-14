@@ -492,6 +492,131 @@ async def handle_pet(request):
         return _cors(web.json_response({"hasPet": False, "ok": False, "msg": "Ошибка"}))
 
 
+async def handle_potions(request):
+    """Зелья: action = list|brew|collect. Требует авторизации."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+
+    from datetime import datetime, timezone
+    try:
+        from handlers.potion_system import (
+            RECIPES, _can_brew, _spend_ingredients, _get_inventory_item_count,
+            _unlock_starter_recipes,
+        )
+        from config import POTION_BREW_TIME_MINUTES
+        from database import (
+            get_user_recipes, get_brewing_queue, add_item_to_inventory,
+            get_conn, execute, fetchall,
+        )
+        from game.items import ITEMS, item_display_name
+    except Exception as e:
+        logger.warning("potions import: %s", e)
+        return _cors(web.json_response({"recipes": [], "queue": []}))
+
+    try:
+        _unlock_starter_recipes(user_id)
+    except Exception:
+        pass
+
+    def _queue_payload():
+        try:
+            q = get_brewing_queue(user_id)
+        except Exception:
+            q = []
+        now = datetime.now(timezone.utc)
+        out = []
+        for item in q:
+            ra = item["ready_at"]
+            if ra.tzinfo is None:
+                ra = ra.replace(tzinfo=timezone.utc)
+            rid = item["recipe_id"]
+            rc = RECIPES.get(rid, {})
+            remaining = int((ra - now).total_seconds())
+            out.append({
+                "recipe": rid,
+                "name": rc.get("name", rid),
+                "emoji": rc.get("emoji", "🧪"),
+                "ready": remaining <= 0,
+                "remaining": max(0, remaining),
+            })
+        return out
+
+    def _recipes_payload():
+        try:
+            known = {r["recipe_id"] for r in get_user_recipes(user_id)}
+        except Exception:
+            known = set()
+        out = []
+        for rid, rc in RECIPES.items():
+            if rid not in known and rc.get("unlock") != "start":
+                continue
+            ings = []
+            can = True
+            for iid, need in rc["ingredients"].items():
+                have = _get_inventory_item_count(user_id, iid)
+                if have < need: can = False
+                idata = ITEMS.get(iid, {})
+                ings.append({
+                    "name": item_display_name(idata, "ru") if idata else iid,
+                    "have": have, "need": need,
+                })
+            out.append({
+                "id": rid, "name": rc.get("name", rid), "emoji": rc.get("emoji", "🧪"),
+                "time": POTION_BREW_TIME_MINUTES.get(rc.get("rarity"), 5),
+                "ingredients": ings, "canBrew": can,
+            })
+        return out
+
+    try:
+        if action == "brew":
+            rid = body.get("recipe", "")
+            rc = RECIPES.get(rid)
+            if not rc:
+                return _cors(web.json_response({"ok": False, "msg": "Рецепт не найден"}))
+            ok, missing = _can_brew(user_id, rc)
+            if not ok:
+                return _cors(web.json_response({"ok": False, "msg": "Не хватает ингредиентов"}))
+            from datetime import timedelta
+            brew_time = POTION_BREW_TIME_MINUTES.get(rc.get("rarity"), 5)
+            ready_at = datetime.now(timezone.utc) + timedelta(minutes=brew_time)
+            _spend_ingredients(user_id, rc)
+            with get_conn() as conn:
+                execute(conn, "INSERT INTO brewing_queue (user_id, recipe_id, ready_at) VALUES (%s,%s,%s)",
+                        user_id, rid, ready_at)
+            return _cors(web.json_response({"ok": True, "msg": f"🔥 Варка началась! Готово через {brew_time} мин.",
+                                            "recipes": _recipes_payload(), "queue": _queue_payload()}))
+        elif action == "collect":
+            now = datetime.now(timezone.utc)
+            collected = []
+            q = get_brewing_queue(user_id)
+            for item in q:
+                ra = item["ready_at"]
+                if ra.tzinfo is None: ra = ra.replace(tzinfo=timezone.utc)
+                if now >= ra:
+                    rc = RECIPES.get(item["recipe_id"], {})
+                    result_item = rc.get("result_item")
+                    if result_item:
+                        add_item_to_inventory(user_id, result_item, 1)
+                        collected.append(rc.get("name", item["recipe_id"]))
+                    with get_conn() as conn:
+                        execute(conn, "DELETE FROM brewing_queue WHERE id=%s", item["id"])
+            msg = ("✅ Собрано: " + ", ".join(collected)) if collected else "Пока нечего собирать"
+            return _cors(web.json_response({"ok": bool(collected), "msg": msg,
+                                            "recipes": _recipes_payload(), "queue": _queue_payload()}))
+        else:
+            return _cors(web.json_response({"recipes": _recipes_payload(), "queue": _queue_payload()}))
+    except Exception as e:
+        logger.warning("potions action: %s", e)
+        return _cors(web.json_response({"recipes": [], "queue": [], "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -514,6 +639,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/battle", handle_options)
     app.router.add_post("/api/pet", handle_pet)
     app.router.add_options("/api/pet", handle_options)
+    app.router.add_post("/api/potions", handle_potions)
+    app.router.add_options("/api/potions", handle_options)
     return app
 
 
