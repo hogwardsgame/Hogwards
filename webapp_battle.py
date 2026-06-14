@@ -65,6 +65,7 @@ def _public_state(uid: int) -> dict:
         "result":  st.get("result"),
         "reward":  st.get("reward"),
         "lastTurn": st.get("last_turn"),
+        "isBoss":  st.get("is_boss", False),
     }
 
 
@@ -78,6 +79,8 @@ def list_zones(user_id: int) -> dict:
     for zid, z in ZONES.items():
         min_lvl = z.get("min_level", 1)
         mons = [MONSTERS[mid] for mid in z.get("monsters", []) if mid in MONSTERS]
+        boss_id = z.get("boss")
+        boss = MONSTERS.get(boss_id) if boss_id else None
         out.append({
             "id": zid,
             "name": z["name"].get("ru") if isinstance(z.get("name"), dict) else z.get("name", zid),
@@ -85,12 +88,14 @@ def list_zones(user_id: int) -> dict:
             "minLevel": min_lvl,
             "locked": lvl < min_lvl,
             "monsters": len(mons),
+            "boss": (boss["name"].get("ru") if isinstance(boss.get("name"), dict) else boss.get("name")) if boss else None,
+            "bossEmoji": boss.get("emoji", "👑") if boss else None,
         })
     return {"zones": out, "playerLevel": lvl}
 
 
-def start_battle(user_id: int, zone_id: str = None) -> dict:
-    """Начать PvE-бой. Если указана зона — монстр из неё, иначе случайный."""
+def start_battle(user_id: int, zone_id: str = None, boss: bool = False) -> dict:
+    """Начать PvE-бой. zone_id — зона; boss=True — биться с боссом зоны."""
     _cleanup()
     from database import get_user, get_user_spells
     from game.monsters import MONSTERS, ZONES
@@ -105,14 +110,21 @@ def start_battle(user_id: int, zone_id: str = None) -> dict:
 
     lvl = user.get("level", 1)
     monster = None
+    is_boss_fight = False
     if zone_id and zone_id in ZONES:
         z = ZONES[zone_id]
         if lvl < z.get("min_level", 1):
             return {"active": False, "error": "zone_locked",
                     "msg": f"Зона доступна с {z.get('min_level',1)} уровня"}
-        zone_monsters = [MONSTERS[mid] for mid in z.get("monsters", []) if mid in MONSTERS and not MONSTERS[mid].get("is_boss")]
-        if zone_monsters:
-            monster = dict(random.choice(zone_monsters))
+        if boss:
+            bid = z.get("boss")
+            if bid and bid in MONSTERS:
+                monster = dict(MONSTERS[bid])
+                is_boss_fight = True
+        else:
+            zone_monsters = [MONSTERS[mid] for mid in z.get("monsters", []) if mid in MONSTERS and not MONSTERS[mid].get("is_boss")]
+            if zone_monsters:
+                monster = dict(random.choice(zone_monsters))
     if monster is None:
         candidates = [m for m in MONSTERS.values() if not m.get("is_boss")]
         monster = dict(random.choice(candidates))
@@ -130,6 +142,7 @@ def start_battle(user_id: int, zone_id: str = None) -> dict:
         "turn":         "player",
         "over":         False,
         "prev_spell":   None,
+        "is_boss":      is_boss_fight,
         "ts":           time.time(),
     }
     _battles[user_id] = st
@@ -201,7 +214,7 @@ def cast(user_id: int, spell_id: str) -> dict:
         st["over"] = True
         st["turn"] = "over"
         st["result"] = "win"
-        st["reward"] = _give_reward(user_id, monster)
+        st["reward"] = _give_reward(user_id, monster, st.get("is_boss", False))
         st["log"].append("🏆 Победа!")
         return _public_state(user_id)
 
@@ -243,13 +256,16 @@ def cast(user_id: int, spell_id: str) -> dict:
     return _public_state(user_id)
 
 
-def _give_reward(user_id: int, monster: dict) -> dict:
-    """Выдать награду за победу (xp/gold/предмет) и обновить серию побед."""
+def _give_reward(user_id: int, monster: dict, is_boss: bool = False) -> dict:
+    """Выдать награду за победу (xp/gold/предмет) и обновить серию побед.
+    За босса — награда выше и дроп гарантирован."""
     from database import add_xp, add_gold
     xp_range = monster.get("xp_reward", (10, 20))
     gold_range = monster.get("gold_reward", (3, 10))
     xp = random.randint(xp_range[0], xp_range[1]) if isinstance(xp_range, (tuple, list)) else int(xp_range)
     gold = random.randint(gold_range[0], gold_range[1]) if isinstance(gold_range, (tuple, list)) else int(gold_range)
+    if is_boss:
+        xp = int(xp * 2.5); gold = int(gold * 2.5)
     item_info = None
     try:
         add_xp(user_id, xp)
@@ -257,16 +273,16 @@ def _give_reward(user_id: int, monster: dict) -> dict:
         # Опыт питомцу
         try:
             from handlers.pets import add_pet_xp
-            add_pet_xp(user_id, 10)
+            add_pet_xp(user_id, 25 if is_boss else 10)
         except Exception:
             pass
-        # Дроп предмета или заклинания (повышенный шанс для Mini App)
+        # Дроп предмета или заклинания (повышенный шанс; за босса — гарантирован)
         try:
             from game.drop_system import monster_drop
             from database import add_item_to_inventory, get_conn, execute
             from game.items import item_display_name, ITEMS
             from game.spells import SPELLS, spell_display_name
-            drop = monster_drop(monster, luck_modifier=1.8)
+            drop = monster_drop(monster, luck_modifier=3.5 if is_boss else 1.8)
             # Предмет
             if drop.get("item"):
                 it = drop["item"]

@@ -398,7 +398,8 @@ async def handle_battle(request):
     try:
         if action == "start":
             zone = body.get("zone") or None
-            return _cors(web.json_response(wb.start_battle(user_id, zone)))
+            boss = bool(body.get("boss", False))
+            return _cors(web.json_response(wb.start_battle(user_id, zone, boss)))
         elif action == "zones":
             return _cors(web.json_response(wb.list_zones(user_id)))
         elif action == "cast":
@@ -620,6 +621,135 @@ async def handle_potions(request):
         return _cors(web.json_response({"recipes": [], "queue": [], "ok": False, "msg": "Ошибка"}))
 
 
+async def handle_shop(request):
+    """Магазин: action = list|buy. Требует авторизации."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+
+    from database import get_user, get_conn, fetchrow, fetchall, execute, add_item_to_inventory
+    from game.items import ITEMS, item_display_name
+    try:
+        from handlers.shop import _ensure_daily_shop
+    except Exception as e:
+        logger.warning("shop import: %s", e)
+        return _cors(web.json_response({"items": [], "gold": 0}))
+
+    rarity_emoji = {
+        "common": "⚪", "uncommon": "🟢", "rare": "🔵", "very_rare": "🟣",
+        "epic": "🟠", "legendary": "🔴", "mythical": "🌟", "abyssal": "⚫",
+    }
+
+    def _shop_payload(msg=None, ok=True):
+        try:
+            rows = _ensure_daily_shop()
+        except Exception:
+            rows = []
+        user = get_user(user_id)
+        out = []
+        for r in rows:
+            item = ITEMS.get(r["item_id"], {})
+            if not item:
+                continue
+            out.append({
+                "rowId": r["id"],
+                "name": item_display_name(item, "ru"),
+                "emoji": item.get("emoji", "📦"),
+                "rarity": rarity_emoji.get(item.get("rarity", "common"), "⚪"),
+                "price": r["price_gold"],
+                "stock": r["stock"],
+                "afford": user["gold"] >= r["price_gold"],
+            })
+        return {"items": out, "gold": user["gold"], "ok": ok, "msg": msg}
+
+    try:
+        if action == "buy":
+            row_id = int(body.get("rowId", 0))
+            with get_conn() as conn:
+                row = fetchrow(conn, "SELECT * FROM shop_items WHERE id=%s AND available_until::date >= CURRENT_DATE", row_id)
+            if not row:
+                return _cors(web.json_response(_shop_payload("Товар недоступен", ok=False)))
+            item = ITEMS.get(row["item_id"])
+            user = get_user(user_id)
+            if row["stock"] == 0:
+                return _cors(web.json_response(_shop_payload("Распродано", ok=False)))
+            if user["gold"] < row["price_gold"]:
+                return _cors(web.json_response(_shop_payload("Не хватает золота", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", row["price_gold"], user_id)
+                if row["stock"] > 0:
+                    execute(conn, "UPDATE shop_items SET stock=stock-1 WHERE id=%s", row_id)
+            add_item_to_inventory(user_id, row["item_id"], 1)
+            nm = item_display_name(item, "ru") if item else row["item_id"]
+            return _cors(web.json_response(_shop_payload(f"✅ Куплено: {nm}", ok=True)))
+        else:
+            return _cors(web.json_response(_shop_payload()))
+    except Exception as e:
+        logger.warning("shop action: %s", e)
+        return _cors(web.json_response({"items": [], "gold": 0, "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_achievements(request):
+    """Достижения с прогрессом. Требует авторизации."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+
+    from database import get_user_stats, get_user_achievements
+    try:
+        from handlers.achievements import ACHIEVEMENTS
+    except Exception as e:
+        logger.warning("ach import: %s", e)
+        return _cors(web.json_response({"achievements": []}))
+
+    try:
+        stats = get_user_stats(user_id) or {}
+    except Exception:
+        stats = {}
+    try:
+        earned = {r["achievement"]: r["tier"] for r in get_user_achievements(user_id)}
+    except Exception:
+        earned = {}
+
+    out = []
+    for aid, a in ACHIEVEMENTS.items():
+        stat_key = a.get("stat")
+        cur = stats.get(stat_key, 0) if stat_key else 0
+        tiers = a.get("tiers", [])
+        earned_tier = earned.get(aid, 0)
+        # Следующая цель
+        next_goal = None
+        for t in tiers:
+            if cur < t:
+                next_goal = t; break
+        max_goal = tiers[-1] if tiers else 1
+        done = earned_tier >= len(tiers) or (next_goal is None)
+        out.append({
+            "name": a.get("name", aid),
+            "emoji": a.get("emoji", "🏅"),
+            "desc": a.get("desc", "").replace("{n}", str(next_goal or max_goal)),
+            "cur": cur,
+            "goal": next_goal or max_goal,
+            "tier": earned_tier,
+            "maxTier": len(tiers),
+            "done": done,
+        })
+    # Сначала незавершённые с прогрессом
+    out.sort(key=lambda x: (x["done"], -min(1.0, x["cur"]/x["goal"] if x["goal"] else 0)))
+    return _cors(web.json_response({"achievements": out}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -644,6 +774,10 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/pet", handle_options)
     app.router.add_post("/api/potions", handle_potions)
     app.router.add_options("/api/potions", handle_options)
+    app.router.add_post("/api/shop", handle_shop)
+    app.router.add_options("/api/shop", handle_options)
+    app.router.add_post("/api/achievements", handle_achievements)
+    app.router.add_options("/api/achievements", handle_options)
     return app
 
 
