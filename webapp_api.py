@@ -796,6 +796,31 @@ async def handle_achievements(request):
     return _cors(web.json_response({"achievements": out}))
 
 
+async def handle_pvp(request):
+    """Асинхронный PvP: action = opponents|fight."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "opponents")
+    import webapp_pvp as wp
+    try:
+        if action == "fight":
+            opp_id = int(body.get("opponent", 0))
+            if not opp_id:
+                return _cors(web.json_response({"ok": False, "error": "no_opponent"}))
+            return _cors(web.json_response(wp.simulate(user_id, opp_id)))
+        else:
+            return _cors(web.json_response(wp.list_opponents(user_id)))
+    except Exception as e:
+        logger.warning("pvp %s: %s", action, e)
+        return _cors(web.json_response({"ok": False, "error": "server"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -824,6 +849,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/shop", handle_options)
     app.router.add_post("/api/achievements", handle_achievements)
     app.router.add_options("/api/achievements", handle_options)
+    app.router.add_post("/api/pvp", handle_pvp)
+    app.router.add_options("/api/pvp", handle_options)
     return app
 
 
