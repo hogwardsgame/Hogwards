@@ -821,6 +821,47 @@ async def handle_pvp(request):
         return _cors(web.json_response({"ok": False, "error": "server"}))
 
 
+async def handle_liveduel(request):
+    """Живой PvP — Шаг 1: приглашения и матчинг.
+    action = challenge_id | challenge_random | incoming | respond |
+             check_status | toggle_block | block_status
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "incoming")
+    import webapp_duel as wd
+    try:
+        if action == "challenge_id":
+            target = int(body.get("targetId", 0))
+            return _cors(web.json_response(wd.challenge_by_id(user_id, target)))
+        elif action == "challenge_random":
+            return _cors(web.json_response(wd.challenge_random(user_id)))
+        elif action == "incoming":
+            return _cors(web.json_response(wd.get_incoming(user_id)))
+        elif action == "respond":
+            iid = body.get("inviteId", "")
+            accept = bool(body.get("accept", False))
+            return _cors(web.json_response(wd.respond_invite(user_id, iid, accept)))
+        elif action == "check_status":
+            iid = body.get("inviteId", "")
+            return _cors(web.json_response(wd.check_invite_status(user_id, iid)))
+        elif action == "toggle_block":
+            return _cors(web.json_response(wd.toggle_block(user_id)))
+        elif action == "block_status":
+            return _cors(web.json_response({"blocked": wd.get_block_status(user_id)}))
+        else:
+            return _cors(web.json_response({"error": "unknown_action"}))
+    except Exception as e:
+        logger.warning("liveduel %s: %s", action, e)
+        return _cors(web.json_response({"ok": False, "error": "server"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -851,6 +892,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/achievements", handle_options)
     app.router.add_post("/api/pvp", handle_pvp)
     app.router.add_options("/api/pvp", handle_options)
+    app.router.add_post("/api/liveduel", handle_liveduel)
+    app.router.add_options("/api/liveduel", handle_options)
     return app
 
 
