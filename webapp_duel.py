@@ -277,13 +277,17 @@ def get_battle_state(user_id: int, room_id: str) -> dict:
             r["turn_deadline"] = time.time() + _TURN_TIME
             r["log"].append("⏱ Ход пропущен (таймаут)")
 
+    house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
+    house_names = {"gryffindor": "Гриффиндор", "slytherin": "Слизерин", "ravenclaw": "Когтевран", "hufflepuff": "Пуффендуй"}
     return {
         "active": True,
         "roomId": room_id,
-        "me": {"name": me["wizard_name"], "house": me["house"],
+        "me": {"name": me["wizard_name"], "house": house_emojis.get(me["house"], "🏰"),
+               "houseName": house_names.get(me["house"], ""),
                "hp": r["hp"][my_id], "maxHp": me["max_hp"],
                "mana": r["mana"][my_id], "maxMana": me["max_mana"]},
-        "foe": {"name": foe["wizard_name"], "house": foe["house"],
+        "foe": {"name": foe["wizard_name"], "house": house_emojis.get(foe["house"], "🏰"),
+                "houseName": house_names.get(foe["house"], ""),
                 "hp": r["hp"][foe_id], "maxHp": foe["max_hp"],
                 "mana": r["mana"][foe_id], "maxMana": foe["max_mana"]},
         "yourTurn": (r["turn"] == my_id) and not r["over"],
