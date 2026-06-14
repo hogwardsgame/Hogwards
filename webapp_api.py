@@ -397,7 +397,10 @@ async def handle_battle(request):
     import webapp_battle as wb
     try:
         if action == "start":
-            return _cors(web.json_response(wb.start_battle(user_id)))
+            zone = body.get("zone") or None
+            return _cors(web.json_response(wb.start_battle(user_id, zone)))
+        elif action == "zones":
+            return _cors(web.json_response(wb.list_zones(user_id)))
         elif action == "cast":
             spell_id = body.get("spell", "")
             return _cors(web.json_response(wb.cast(user_id, spell_id)))

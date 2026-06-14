@@ -68,11 +68,32 @@ def _public_state(uid: int) -> dict:
     }
 
 
-def start_battle(user_id: int) -> dict:
-    """Начать PvE-бой со случайным монстром по уровню игрока."""
+def list_zones(user_id: int) -> dict:
+    """Список зон с учётом уровня игрока (для выбора в бою)."""
+    from database import get_user
+    from game.monsters import ZONES, MONSTERS
+    user = get_user(user_id)
+    lvl = user.get("level", 1) if user else 1
+    out = []
+    for zid, z in ZONES.items():
+        min_lvl = z.get("min_level", 1)
+        mons = [MONSTERS[mid] for mid in z.get("monsters", []) if mid in MONSTERS]
+        out.append({
+            "id": zid,
+            "name": z["name"].get("ru") if isinstance(z.get("name"), dict) else z.get("name", zid),
+            "emoji": z.get("emoji", "🌲"),
+            "minLevel": min_lvl,
+            "locked": lvl < min_lvl,
+            "monsters": len(mons),
+        })
+    return {"zones": out, "playerLevel": lvl}
+
+
+def start_battle(user_id: int, zone_id: str = None) -> dict:
+    """Начать PvE-бой. Если указана зона — монстр из неё, иначе случайный."""
     _cleanup()
     from database import get_user, get_user_spells
-    from game.monsters import MONSTERS
+    from game.monsters import MONSTERS, ZONES
     from game.battle_engine import fresh_status
 
     user = get_user(user_id)
@@ -82,11 +103,19 @@ def start_battle(user_id: int) -> dict:
     spell_rows = get_user_spells(user_id)
     spell_ids = [r["spell_id"] for r in spell_rows] if spell_rows else ["expelliarmus"]
 
-    # Подбираем монстра по уровню (не босса)
-    candidates = [m for m in MONSTERS.values() if not m.get("is_boss")]
     lvl = user.get("level", 1)
-    # Чем выше уровень — тем сильнее монстры по hp
-    monster = dict(random.choice(candidates))
+    monster = None
+    if zone_id and zone_id in ZONES:
+        z = ZONES[zone_id]
+        if lvl < z.get("min_level", 1):
+            return {"active": False, "error": "zone_locked",
+                    "msg": f"Зона доступна с {z.get('min_level',1)} уровня"}
+        zone_monsters = [MONSTERS[mid] for mid in z.get("monsters", []) if mid in MONSTERS and not MONSTERS[mid].get("is_boss")]
+        if zone_monsters:
+            monster = dict(random.choice(zone_monsters))
+    if monster is None:
+        candidates = [m for m in MONSTERS.values() if not m.get("is_boss")]
+        monster = dict(random.choice(candidates))
 
     st = {
         "player":       dict(user),
