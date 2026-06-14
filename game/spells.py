@@ -451,6 +451,38 @@ SPELLS = {
         "effect": "cleanse", "effect_chance": 1.0,
         "desc_ru": "Возврат времени — полное восстановление HP и снятие всех дебаффов",
     },
+
+    # ── Новые заклинания (дополнение) ─────────────────────────────────────────
+    "glacius_maxima": {
+        "id": "glacius_maxima", "emoji": "❄️", "rarity": "rare", "type": "attack",
+        "mana": 34, "damage": 46, "effect": "freeze", "effect_chance": 0.5,
+        "desc_ru": "Мощный ледяной шквал, замораживающий противника",
+    },
+    "fulgur_storm": {
+        "id": "fulgur_storm", "emoji": "⚡", "rarity": "rare", "type": "attack",
+        "mana": 36, "damage": 50, "effect": "stun", "effect_chance": 0.4,
+        "desc_ru": "Грозовой разряд, оглушающий цель",
+    },
+    "venenum_nox": {
+        "id": "venenum_nox", "emoji": "🟣", "rarity": "uncommon", "type": "attack",
+        "mana": 28, "damage": 32, "effect": "poison", "effect_chance": 0.6,
+        "desc_ru": "Ядовитое облако тьмы, отравляющее врага",
+    },
+    "terra_eruptio": {
+        "id": "terra_eruptio", "emoji": "🌿", "rarity": "very_rare", "type": "attack",
+        "mana": 44, "damage": 62, "effect": "weaken", "effect_chance": 0.5,
+        "desc_ru": "Извержение природной силы, ослабляющее противника",
+    },
+    "sanatio_magna": {
+        "id": "sanatio_magna", "emoji": "💚", "rarity": "rare", "type": "heal",
+        "mana": 40, "damage": 0, "heal": 110, "effect": "cleanse", "effect_chance": 0.5,
+        "desc_ru": "Великое исцеление — восстанавливает много HP и снимает дебаффы",
+    },
+    "inferno_aeternum": {
+        "id": "inferno_aeternum", "emoji": "🔥", "rarity": "epic", "type": "attack",
+        "mana": 60, "damage": 85, "effect": "burn", "effect_chance": 0.7,
+        "desc_ru": "Вечное пламя, сжигающее всё на своём пути",
+    },
 }
 
 # ── Шансы выпадения (drop rates) ──────────────────────────────────────────────

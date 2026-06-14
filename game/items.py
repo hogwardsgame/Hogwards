@@ -88,6 +88,12 @@ NAMED_WANDS = {
     "wand_blackthorn": _equip(
         "wand_blackthorn", "Палочка из тёрна", "wand", "epic",
         "Грозная боевая палочка. Предпочитает сильных и смелых волшебников.", "⚡"),
+    "wand_elder_thestral": _equip(
+        "wand_elder_thestral", "Бузинная палочка с волосом фестрала", "wand", "legendary",
+        "Легендарнейшая палочка, дарующая невероятную мощь своему истинному хозяину.", "🪄"),
+    "wand_willow_unicorn": _equip(
+        "wand_willow_unicorn", "Ивовая палочка с волосом единорога", "wand", "rare",
+        "Гибкая и верная палочка, особенно хороша в исцеляющих чарах.", "🌿"),
 }
 ITEMS.update(NAMED_WANDS)
 
