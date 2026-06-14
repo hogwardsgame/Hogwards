@@ -231,23 +231,43 @@ def _give_reward(user_id: int, monster: dict) -> dict:
             add_pet_xp(user_id, 10)
         except Exception:
             pass
-        # Дроп предмета
+        # Дроп предмета или заклинания (повышенный шанс для Mini App)
         try:
             from game.drop_system import monster_drop
-            from database import add_item_to_inventory
-            from game.items import item_display_name
-            drop = monster_drop(monster, luck_modifier=1.0)
+            from database import add_item_to_inventory, get_conn, execute
+            from game.items import item_display_name, ITEMS
+            from game.spells import SPELLS, spell_display_name
+            drop = monster_drop(monster, luck_modifier=1.8)
+            # Предмет
             if drop.get("item"):
                 it = drop["item"]
                 iid = it.get("id") if isinstance(it, dict) else it
                 if iid:
                     add_item_to_inventory(user_id, iid, 1)
-                    from game.items import ITEMS
                     idata = ITEMS.get(iid, {})
                     item_info = {
                         "name": item_display_name(idata, "ru") if idata else iid,
                         "emoji": idata.get("emoji", "📦"),
                     }
+            # Заклинание (раньше терялось — теперь выдаём)
+            if drop.get("spell"):
+                sp = drop["spell"]
+                sid = sp.get("id") if isinstance(sp, dict) else sp
+                if sid:
+                    try:
+                        with get_conn() as conn:
+                            execute(conn, """
+                                INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s)
+                                ON CONFLICT DO NOTHING
+                            """, user_id, sid)
+                    except Exception:
+                        pass
+                    sdata = SPELLS.get(sid, {})
+                    if item_info is None:
+                        item_info = {
+                            "name": spell_display_name(sid, "ru") + " (заклинание)",
+                            "emoji": sdata.get("emoji", "📜"),
+                        }
         except Exception as e:
             logger.warning("pve drop: %s", e)
         # Серия побед (в памяти на сессию)
