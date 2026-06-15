@@ -2521,6 +2521,31 @@ async def handle_pubprofile(request):
                 data["pet"] = None
         except Exception:
             data["pet"] = None
+        # Экипировка
+        try:
+            from game.items import ITEMS as _IT, item_display_name as _idn
+            with get_conn() as conn:
+                eq_rows = fetchall(conn, "SELECT slot, item_id, bonus FROM equipped_items WHERE user_id=%s", uid)
+            slot_names = {"weapon": "Оружие", "armor": "Броня", "accessory": "Аксессуар",
+                          "helmet": "Шлем", "boots": "Обувь", "cloak": "Мантия"}
+            equipment = []
+            for r in eq_rows:
+                idata = _IT.get(r["item_id"], {})
+                equipment.append({
+                    "slot": slot_names.get(r["slot"], r["slot"]),
+                    "name": _idn(idata, "ru") if idata else r["item_id"],
+                    "emoji": idata.get("emoji", "🔲"),
+                    "bonus": r.get("bonus", 0),
+                })
+            data["equipment"] = equipment
+        except Exception:
+            data["equipment"] = []
+        # Палочка
+        try:
+            wood = user.get("wand_wood"); core = user.get("wand_core")
+            data["wand"] = {"wood": wood or "—", "core": core or "—"} if (wood or core) else None
+        except Exception:
+            data["wand"] = None
         return _cors(web.json_response(data))
     except Exception as e:
         logger.warning("pubprofile: %s", e)
