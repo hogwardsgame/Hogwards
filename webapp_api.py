@@ -2334,6 +2334,109 @@ async def handle_war(request):
         return _cors(web.json_response({"houses": [], "top": []}))
 
 
+async def handle_auction(request):
+    """Аукцион: action = list | bid | mysellable | sell."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from datetime import datetime, timezone, timedelta
+    from database import get_user, get_conn, execute, fetchall, fetchrow
+    try:
+        from handlers.auction import _allowed_for_auction
+        from game.items import ITEMS, item_display_name
+    except Exception as e:
+        logger.warning("auc import: %s", e)
+        return _cors(web.json_response({"lots": []}))
+    house_rarity = {"common":"⬜","uncommon":"🟩","rare":"🟦","very_rare":"🟪","epic":"🟧","legendary":"🟨"}
+    try:
+        if action == "bid":
+            lot_id = int(body.get("lotId", 0))
+            amount = int(body.get("amount", 0))
+            user = get_user(user_id)
+            # Атомарно: проверка + возврат прошлому + списание новому
+            with get_conn() as conn:
+                lot = fetchrow(conn, "SELECT * FROM auction_lots WHERE id=%s AND status='active' AND ends_at > NOW()", lot_id)
+                if not lot:
+                    return _cors(web.json_response({"ok": False, "msg": "Лот не найден или завершён"}))
+                if lot["seller_id"] == user_id:
+                    return _cors(web.json_response({"ok": False, "msg": "Нельзя ставить на свой лот"}))
+                if amount <= lot["current_price"]:
+                    return _cors(web.json_response({"ok": False, "msg": f"Ставка должна быть больше {lot['current_price']} 💰"}))
+                if user["gold"] < amount:
+                    return _cors(web.json_response({"ok": False, "msg": "Не хватает золота"}))
+                # Возврат прошлому лидеру
+                if lot.get("buyer_id"):
+                    execute(conn, "UPDATE users SET gold=gold+%s WHERE user_id=%s", lot["current_price"], lot["buyer_id"])
+                # Списание у нового
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", amount, user_id)
+                execute(conn, "INSERT INTO auction_bids (lot_id, bidder_id, amount) VALUES (%s,%s,%s)", lot_id, user_id, amount)
+                execute(conn, "UPDATE auction_lots SET current_price=%s, buyer_id=%s WHERE id=%s", amount, user_id, lot_id)
+            return _cors(web.json_response({"ok": True, "msg": f"✅ Ставка {amount} 💰 принята! Ты лидер."}))
+        elif action == "mysellable":
+            with get_conn() as conn:
+                inv = fetchall(conn, "SELECT * FROM inventory WHERE user_id=%s", user_id)
+            items = []
+            for row in inv:
+                idata = ITEMS.get(row["item_id"])
+                if idata and _allowed_for_auction(idata):
+                    items.append({"invId": row["id"], "itemId": row["item_id"],
+                                  "name": item_display_name(idata, "ru"),
+                                  "emoji": idata.get("emoji", "📦"),
+                                  "rarity": house_rarity.get(idata.get("rarity","common"), "")})
+            return _cors(web.json_response({"items": items}))
+        elif action == "sell":
+            inv_id = int(body.get("invId", 0))
+            price = int(body.get("price", 0))
+            hours = int(body.get("hours", 24))
+            if price < 1:
+                return _cors(web.json_response({"ok": False, "msg": "Некорректная цена"}))
+            if hours not in (1, 6, 24):
+                hours = 24
+            with get_conn() as conn:
+                row = fetchrow(conn, "SELECT * FROM inventory WHERE id=%s AND user_id=%s", inv_id, user_id)
+                if not row:
+                    return _cors(web.json_response({"ok": False, "msg": "Предмет не найден"}))
+                idata = ITEMS.get(row["item_id"])
+                if not idata or not _allowed_for_auction(idata):
+                    return _cors(web.json_response({"ok": False, "msg": "Этот предмет нельзя продать"}))
+                ends_at = datetime.now(timezone.utc) + timedelta(hours=hours)
+                execute(conn, """INSERT INTO auction_lots (seller_id, item_id, start_price, current_price, ends_at)
+                                 VALUES (%s,%s,%s,%s,%s)""", user_id, row["item_id"], price, price, ends_at)
+                execute(conn, "DELETE FROM inventory WHERE id=%s", inv_id)
+            name = item_display_name(idata, "ru")
+            return _cors(web.json_response({"ok": True, "msg": f"✅ {name} выставлен на аукцион за {price} 💰 на {hours}ч"}))
+        else:
+            with get_conn() as conn:
+                lots = fetchall(conn, "SELECT * FROM auction_lots WHERE status='active' AND ends_at > NOW() ORDER BY ends_at ASC LIMIT 30")
+            out = []
+            for lot in lots:
+                idata = ITEMS.get(lot["item_id"], {})
+                ends = lot["ends_at"]
+                if ends and ends.tzinfo is None: ends = ends.replace(tzinfo=timezone.utc)
+                secs = int((ends - datetime.now(timezone.utc)).total_seconds()) if ends else 0
+                if secs > 3600: tleft = f"{secs//3600}ч {secs%3600//60}м"
+                else: tleft = f"{secs//60}м"
+                out.append({
+                    "id": lot["id"], "name": item_display_name(idata, "ru") if idata else lot["item_id"],
+                    "emoji": idata.get("emoji", "📦"),
+                    "rarity": house_rarity.get(idata.get("rarity","common"), ""),
+                    "price": lot["current_price"], "timeLeft": tleft,
+                    "isMine": lot["seller_id"] == user_id,
+                    "iLead": lot.get("buyer_id") == user_id,
+                })
+            user = get_user(user_id)
+            return _cors(web.json_response({"lots": out, "gold": user["gold"] if user else 0}))
+    except Exception as e:
+        logger.warning("auction %s: %s", action, e)
+        return _cors(web.json_response({"lots": [], "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2410,6 +2513,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/triwizard", handle_options)
     app.router.add_post("/api/war", handle_war)
     app.router.add_options("/api/war", handle_options)
+    app.router.add_post("/api/auction", handle_auction)
+    app.router.add_options("/api/auction", handle_options)
     return app
 
 
