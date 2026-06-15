@@ -1641,6 +1641,197 @@ async def handle_bank(request):
         return _cors(web.json_response({"balance": 0, "ok": False, "msg": "Ошибка"}))
 
 
+async def handle_explore(request):
+    """Исследование локаций: action = zones | event | choice."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "zones")
+    import random as _rnd
+    from database import get_user, add_xp, add_gold, add_item_to_inventory
+    try:
+        from handlers.locations import LOCATION_EVENTS, _get_progress, _increment_visits
+        from game.monsters import ZONES
+        from game.items import ITEMS, item_display_name
+    except Exception as e:
+        logger.warning("explore import: %s", e)
+        return _cors(web.json_response({"zones": []}))
+    try:
+        user = get_user(user_id)
+        lvl = user.get("level", 1) if user else 1
+        if action == "event":
+            zone_id = body.get("zone", "")
+            events = LOCATION_EVENTS.get(zone_id)
+            if not events:
+                return _cors(web.json_response({"hasEvent": False, "msg": "В этой локации нет событий"}))
+            _increment_visits(user_id, zone_id)
+            ev = _rnd.choice(events)
+            # индекс события для последующего выбора
+            idx = events.index(ev)
+            return _cors(web.json_response({
+                "hasEvent": True, "zone": zone_id, "eventIdx": idx,
+                "title": ev["title"], "desc": ev["desc"], "options": ev["options"],
+            }))
+        elif action == "choice":
+            zone_id = body.get("zone", "")
+            ev_idx = int(body.get("eventIdx", -1))
+            choice = int(body.get("choice", -1))
+            events = LOCATION_EVENTS.get(zone_id, [])
+            if ev_idx < 0 or ev_idx >= len(events):
+                return _cors(web.json_response({"ok": False, "msg": "Событие не найдено"}))
+            ev = events[ev_idx]
+            outcomes = ev.get("outcomes", [])
+            if choice < 0 or choice >= len(outcomes):
+                return _cors(web.json_response({"ok": False, "msg": "Неверный выбор"}))
+            out = outcomes[choice]
+            xp = out.get("xp", 0); gold = out.get("gold", 0); item = out.get("item")
+            if xp: add_xp(user_id, xp)
+            if gold: add_gold(user_id, gold)
+            item_txt = ""
+            if item:
+                add_item_to_inventory(user_id, item, 1)
+                idata = ITEMS.get(item, {})
+                item_txt = (idata.get("emoji","📦") + " " + item_display_name(idata, "ru")) if idata else item
+            return _cors(web.json_response({
+                "ok": True, "msg": out.get("msg", ""),
+                "xp": xp, "gold": gold, "item": item_txt,
+            }))
+        else:
+            zones = []
+            for zid, z in ZONES.items():
+                if zid not in LOCATION_EVENTS:
+                    continue
+                visits = _get_progress(user_id, zid)
+                zones.append({
+                    "id": zid,
+                    "name": z["name"].get("ru") if isinstance(z.get("name"), dict) else z.get("name", zid),
+                    "emoji": z.get("emoji", "🗺️"),
+                    "desc": z.get("desc_ru", ""),
+                    "visits": visits,
+                    "locked": lvl < z.get("min_level", 1),
+                    "minLevel": z.get("min_level", 1),
+                })
+            return _cors(web.json_response({"zones": zones}))
+    except Exception as e:
+        logger.warning("explore %s: %s", action, e)
+        return _cors(web.json_response({"zones": [], "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_collections(request):
+    """Коллекции: action = list | claim."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user, get_conn, execute, add_gold, add_xp, add_item_to_inventory
+    try:
+        from handlers.collections import (COLLECTIONS, _get_owned_items, _is_claimed,
+                                          _collection_progress, _ensure_table)
+        from handlers.titles import grant_title
+    except Exception as e:
+        logger.warning("coll import: %s", e)
+        return _cors(web.json_response({"collections": []}))
+    try:
+        _ensure_table()
+        owned = _get_owned_items(user_id)
+        if action == "claim":
+            cid = body.get("collection", "")
+            coll = COLLECTIONS.get(cid)
+            if not coll:
+                return _cors(web.json_response({"ok": False, "msg": "Коллекция не найдена"}))
+            have, total = _collection_progress(owned, coll)
+            if have < total:
+                return _cors(web.json_response({"ok": False, "msg": f"Собрано {have}/{total} — ещё не готово"}))
+            if _is_claimed(user_id, cid):
+                return _cors(web.json_response({"ok": False, "msg": "Награда уже получена"}))
+            reward = coll["reward"]
+            if reward.get("xp"): add_xp(user_id, reward["xp"])
+            if reward.get("gold"): add_gold(user_id, reward["gold"])
+            if reward.get("item"): add_item_to_inventory(user_id, reward["item"], 1)
+            if reward.get("title"):
+                try: grant_title(user_id, reward["title"])
+                except Exception: pass
+            with get_conn() as conn:
+                execute(conn, """INSERT INTO collection_claims (user_id, collection_id)
+                                 VALUES (%s,%s) ON CONFLICT DO NOTHING""", user_id, cid)
+            return _cors(web.json_response({"ok": True,
+                "msg": f"🎉 Награда получена: +{reward.get('xp',0)} XP, +{reward.get('gold',0)} 💰"}))
+        else:
+            out = []
+            for cid, coll in COLLECTIONS.items():
+                have, total = _collection_progress(owned, coll)
+                out.append({
+                    "id": cid, "title": coll["title"], "desc": coll.get("desc", ""),
+                    "have": have, "total": total, "done": have >= total,
+                    "claimed": _is_claimed(user_id, cid),
+                    "rewardXp": coll["reward"].get("xp", 0),
+                    "rewardGold": coll["reward"].get("gold", 0),
+                    "rewardTitle": coll["reward"].get("title"),
+                })
+            return _cors(web.json_response({"collections": out}))
+    except Exception as e:
+        logger.warning("collections %s: %s", action, e)
+        return _cors(web.json_response({"collections": [], "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_titles(request):
+    """Титулы: action = list | set."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user, get_conn, execute, fetchall
+    try:
+        from handlers.titles import ALL_TITLES, RARITY_EMOJI
+    except Exception as e:
+        logger.warning("titles import: %s", e)
+        return _cors(web.json_response({"titles": []}))
+    try:
+        user = get_user(user_id)
+        with get_conn() as conn:
+            rows = fetchall(conn, "SELECT title_id FROM user_titles WHERE user_id=%s ORDER BY earned_at DESC", user_id)
+        owned = [r["title_id"] for r in rows]
+        active = user.get("title", "") if user else ""
+        if action == "set":
+            tid = body.get("titleId", "")
+            if tid not in owned and tid != "":
+                return _cors(web.json_response({"ok": False, "msg": "Титул не получен"}))
+            info = ALL_TITLES.get(tid, {})
+            title_text = (info.get("emoji","") + " " + info.get("name", tid)).strip() if tid else ""
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET title=%s WHERE user_id=%s", title_text, user_id)
+            return _cors(web.json_response({"ok": True, "msg": "✅ Титул установлен!", "active": title_text}))
+        else:
+            out = []
+            for tid in owned:
+                info = ALL_TITLES.get(tid, {})
+                title_text = (info.get("emoji","") + " " + info.get("name", tid)).strip()
+                out.append({
+                    "id": tid, "name": info.get("name", tid), "emoji": info.get("emoji", "🎭"),
+                    "rarity": RARITY_EMOJI.get(info.get("rarity","common"), ""),
+                    "active": title_text == active,
+                })
+            return _cors(web.json_response({"titles": out, "active": active}))
+    except Exception as e:
+        logger.warning("titles %s: %s", action, e)
+        return _cors(web.json_response({"titles": [], "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -1695,6 +1886,12 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/wandcraft", handle_options)
     app.router.add_post("/api/bank", handle_bank)
     app.router.add_options("/api/bank", handle_options)
+    app.router.add_post("/api/explore", handle_explore)
+    app.router.add_options("/api/explore", handle_options)
+    app.router.add_post("/api/collections", handle_collections)
+    app.router.add_options("/api/collections", handle_options)
+    app.router.add_post("/api/titles", handle_titles)
+    app.router.add_options("/api/titles", handle_options)
     return app
 
 
