@@ -2555,6 +2555,77 @@ async def handle_pubprofile(request):
         return _cors(web.json_response({"found": False}))
 
 
+async def handle_abilities(request):
+    """Умения Арены: action = list | upgrade. upgrade тратит зелье улучшения."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user, get_conn, execute, fetchrow
+    try:
+        from game.arena_abilities import (ARENA_ABILITIES, get_player_abilities, add_ability_xp,
+                                          xp_for_level, MAX_ABILITY_LEVEL, UPGRADE_POTION_XP,
+                                          ability_damage, ability_heal, ability_shield, ability_poison)
+    except Exception as e:
+        logger.warning("abilities import: %s", e)
+        return _cors(web.json_response({"abilities": []}))
+    try:
+        def _list_payload(msg=None, ok=True, result=None):
+            abils = get_player_abilities(user_id)
+            # сколько зелий улучшения в инвентаре
+            with get_conn() as conn:
+                inv = fetchrow(conn, "SELECT quantity FROM inventory WHERE user_id=%s AND item_id='ability_upgrade_potion'", user_id)
+            potions = inv["quantity"] if inv else 0
+            out = []
+            for aid, ab in ARENA_ABILITIES.items():
+                p = abils.get(aid, {"level": 1, "xp": 0})
+                lvl = p["level"]
+                need = xp_for_level(lvl) if lvl < MAX_ABILITY_LEVEL else 0
+                stats = {}
+                if ab.get("base_damage"): stats["Урон"] = ability_damage(aid, lvl)
+                if ab.get("base_heal"): stats["Лечение"] = ability_heal(aid, lvl)
+                if ab.get("base_shield"): stats["Щит"] = ability_shield(aid, lvl)
+                if ab.get("poison"): stats["Яд/ход"] = ability_poison(aid, lvl)
+                out.append({
+                    "id": aid, "name": ab["name"], "emoji": ab["emoji"], "type": ab["type"],
+                    "mana": ab["mana"], "desc": ab["desc"],
+                    "level": lvl, "xp": p["xp"], "needed": need,
+                    "maxed": lvl >= MAX_ABILITY_LEVEL, "stats": stats,
+                })
+            return {"abilities": out, "potions": potions, "ok": ok, "msg": msg, "result": result}
+
+        if action == "upgrade":
+            ability_id = body.get("ability", "")
+            if ability_id not in ARENA_ABILITIES:
+                return _cors(web.json_response(_list_payload("Умение не найдено", ok=False)))
+            # проверяем зелье в инвентаре
+            with get_conn() as conn:
+                inv = fetchrow(conn, "SELECT quantity FROM inventory WHERE user_id=%s AND item_id='ability_upgrade_potion'", user_id)
+                if not inv or inv["quantity"] < 1:
+                    return _cors(web.json_response(_list_payload("Нет зелья улучшения. Купи в магазине.", ok=False)))
+                execute(conn, "UPDATE inventory SET quantity=quantity-1 WHERE user_id=%s AND item_id='ability_upgrade_potion'", user_id)
+                execute(conn, "DELETE FROM inventory WHERE user_id=%s AND item_id='ability_upgrade_potion' AND quantity<=0", user_id)
+            res = add_ability_xp(user_id, ability_id, UPGRADE_POTION_XP)
+            ab = ARENA_ABILITIES[ability_id]
+            if res.get("leveledUp"):
+                msg = f"⭐ {ab['name']} повышен до {res['newLevel']} уровня!"
+            elif res.get("maxed"):
+                msg = f"{ab['name']} уже максимального уровня"
+            else:
+                msg = f"+{UPGRADE_POTION_XP} XP умению {ab['name']}"
+            return _cors(web.json_response(_list_payload(msg, ok=True, result=res)))
+        else:
+            return _cors(web.json_response(_list_payload()))
+    except Exception as e:
+        logger.warning("abilities %s: %s", action, e)
+        return _cors(web.json_response({"abilities": [], "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2635,6 +2706,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/auction", handle_options)
     app.router.add_post("/api/pubprofile", handle_pubprofile)
     app.router.add_options("/api/pubprofile", handle_options)
+    app.router.add_post("/api/abilities", handle_abilities)
+    app.router.add_options("/api/abilities", handle_options)
     return app
 
 

@@ -560,6 +560,12 @@ def create_user(user_id: int, username: str, wizard_name: str, house: str, lang:
                     INSERT INTO user_spells (user_id, spell_id) VALUES (%s, %s)
                     ON CONFLICT DO NOTHING
                 """, user_id, sid)
+    # Выдаём новичку все 10 боевых умений арены на 1 уровне
+    try:
+        from game.arena_abilities import grant_starter_abilities
+        grant_starter_abilities(user_id)
+    except Exception:
+        pass
 
 
 def add_item_to_inventory(user_id: int, item_id: str, quantity: int = 1):
