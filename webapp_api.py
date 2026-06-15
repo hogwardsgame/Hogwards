@@ -2446,6 +2446,87 @@ async def handle_auction(request):
         return _cors(web.json_response({"lots": [], "ok": False, "msg": "Ошибка"}))
 
 
+async def handle_pubprofile(request):
+    """Публичный профиль другого игрока по ID (для просмотра из топов)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    target_id = body.get("targetId")
+    target_name = body.get("targetName")
+    from database import get_user, get_user_stats, get_conn, fetchrow
+    from utils.helpers import get_rank
+    house_names = {"gryffindor": "Гриффиндор", "slytherin": "Слизерин", "ravenclaw": "Когтевран", "hufflepuff": "Пуффендуй"}
+    house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
+    try:
+        user = None
+        if target_id:
+            user = get_user(int(target_id))
+        elif target_name:
+            # поиск по нику (из топов, где нет ID)
+            with get_conn() as conn:
+                row = fetchrow(conn, "SELECT user_id FROM users WHERE wizard_name=%s LIMIT 1", target_name)
+            if row:
+                user = get_user(row["user_id"])
+        if not user:
+            return _cors(web.json_response({"found": False}))
+        uid = user["user_id"]
+        house = user.get("house", "gryffindor")
+        data = {
+            "found": True,
+            "name": user.get("wizard_name", "Волшебник"),
+            "house": house_names.get(house, "Хогвартс"),
+            "houseEmoji": house_emojis.get(house, "🏰"),
+            "level": user.get("level", 1),
+            "maxHp": user.get("max_hp", 100),
+            "atk": user.get("attack", 10),
+            "def": user.get("defense", 5),
+            "spd": user.get("speed", 10),
+            "title": user.get("title") or "",
+            "rank": get_rank(user.get("level", 1)),
+            "userId": uid,
+        }
+        # PvP статистика
+        try:
+            st = get_user_stats(uid) or {}
+            wins = st.get("pvp_wins", 0) or 0
+            losses = st.get("pvp_losses", 0) or 0
+            total = wins + losses
+            data["pvpWins"] = wins; data["pvpLosses"] = losses
+            data["winrate"] = (str(round(wins / total * 100)) + "%") if total else "—"
+        except Exception:
+            data["pvpWins"] = 0; data["pvpLosses"] = 0; data["winrate"] = "—"
+        # Лига
+        try:
+            from handlers.duel_league import _get_rating, _get_division
+            r = _get_rating(uid)
+            elo = r.get("elo", 1000)
+            div_name, _ = _get_division(elo)
+            data["elo"] = elo; data["division"] = div_name
+        except Exception:
+            data["elo"] = 0; data["division"] = ""
+        # Питомец
+        try:
+            from handlers.pets import _get_pet, PETS, _get_stage
+            pet = _get_pet(uid)
+            if pet:
+                pinfo = PETS.get(pet.get("pet_id"), {})
+                data["pet"] = {"emoji": pinfo.get("emoji", "🐾"),
+                               "name": pinfo.get("name", "Питомец"),
+                               "level": pet.get("level", 1)}
+            else:
+                data["pet"] = None
+        except Exception:
+            data["pet"] = None
+        return _cors(web.json_response(data))
+    except Exception as e:
+        logger.warning("pubprofile: %s", e)
+        return _cors(web.json_response({"found": False}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2524,6 +2605,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/war", handle_options)
     app.router.add_post("/api/auction", handle_auction)
     app.router.add_options("/api/auction", handle_options)
+    app.router.add_post("/api/pubprofile", handle_pubprofile)
+    app.router.add_options("/api/pubprofile", handle_options)
     return app
 
 
