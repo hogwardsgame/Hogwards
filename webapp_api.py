@@ -2626,6 +2626,52 @@ async def handle_abilities(request):
         return _cors(web.json_response({"abilities": [], "ok": False, "msg": "Ошибка"}))
 
 
+async def handle_arena_reward(request):
+    """Награда за бой на Арене с ИИ. action = reward (won: bool, difficulty)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    won = bool(body.get("won", False))
+    difficulty = body.get("difficulty", "normal")
+    from database import get_user, add_gold, add_xp
+    try:
+        user = get_user(user_id)
+        if not user:
+            return _cors(web.json_response({"ok": False}))
+        # Награда зависит от сложности и уровня игрока
+        lvl = user.get("level", 1)
+        diff_mult = {"easy": 0.6, "normal": 1.0, "hard": 1.6}.get(difficulty, 1.0)
+        if won:
+            gold = int((40 + lvl * 6) * diff_mult)
+            xp = int((25 + lvl * 4) * diff_mult)
+            # шанс зелья улучшения за победу на сложном
+            bonus = ""
+            import random as _r
+            if difficulty == "hard" and _r.random() < 0.25:
+                from database import add_item_to_inventory
+                add_item_to_inventory(user_id, "ability_upgrade_potion", 1)
+                bonus = " + ⚗️ Зелье улучшения!"
+            add_gold(user_id, gold); add_xp(user_id, xp)
+            return _cors(web.json_response({"ok": True, "won": True,
+                "gold": gold, "xp": xp, "bonus": bonus,
+                "msg": f"🏆 Победа! +{gold} 💰, +{xp} XP{bonus}"}))
+        else:
+            # утешительная мелочь за участие
+            gold = int(10 * diff_mult)
+            add_gold(user_id, gold)
+            return _cors(web.json_response({"ok": True, "won": False,
+                "gold": gold, "xp": 0,
+                "msg": f"Поражение. +{gold} 💰 за участие"}))
+    except Exception as e:
+        logger.warning("arena_reward: %s", e)
+        return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2708,6 +2754,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/pubprofile", handle_options)
     app.router.add_post("/api/abilities", handle_abilities)
     app.router.add_options("/api/abilities", handle_options)
+    app.router.add_post("/api/arena_reward", handle_arena_reward)
+    app.router.add_options("/api/arena_reward", handle_options)
     return app
 
 
