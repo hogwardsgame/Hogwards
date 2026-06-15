@@ -2027,6 +2027,189 @@ async def handle_blackmarket(request):
         return _cors(web.json_response({"items": [], "ok": False, "msg": "Ошибка"}))
 
 
+async def handle_horcruxes(request):
+    """Крестражи: action = list | search | destroy."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    import random as _rnd
+    from database import get_user, get_conn, execute, fetchrow, fetchall, add_xp, add_gold, get_user_spells
+    try:
+        from handlers.horcruxes import HORCRUXES, _get_horcrux_state, _destroyed_count, _ensure_horcrux_tables
+        from game.items import ITEMS, item_display_name
+    except Exception as e:
+        logger.warning("hx import: %s", e)
+        return _cors(web.json_response({"horcruxes": []}))
+    try:
+        _ensure_horcrux_tables()
+        def _hx_by_id(hid): return next((h for h in HORCRUXES if h["id"] == hid), None)
+
+        def _list_payload(msg=None, ok=True):
+            state = _get_horcrux_state()
+            destroyed = _destroyed_count(state)
+            out = []
+            for h in HORCRUXES:
+                row = state.get(h["id"], {})
+                status = row.get("status", "hidden")
+                need = ""
+                if h.get("destroy_item"):
+                    idata = ITEMS.get(h["destroy_item"], {})
+                    need = "🗡️ " + (item_display_name(idata, "ru") if idata else h["destroy_item"])
+                elif h.get("destroy_spell"):
+                    need = "✨ " + h["destroy_spell"]
+                out.append({
+                    "id": h["id"], "name": h["name"], "emoji": h["emoji"],
+                    "locName": h["loc_name"], "desc": h["desc"], "hint": h["hint"],
+                    "status": status, "need": need, "number": h["number"],
+                })
+            return {"horcruxes": out, "destroyed": destroyed, "total": 7,
+                    "allDone": destroyed == 7, "ok": ok, "msg": msg}
+
+        if action == "search":
+            hid = body.get("horcrux", "")
+            h = _hx_by_id(hid)
+            if not h:
+                return _cors(web.json_response(_list_payload("Крестраж не найден", ok=False)))
+            state = _get_horcrux_state()
+            row = state.get(hid, {})
+            if row.get("status") in ("found", "destroyed"):
+                return _cors(web.json_response(_list_payload("Этот крестраж уже найден", ok=False)))
+            chance = max(0.15, 0.70 - h["number"] * 0.08)
+            if _rnd.random() < chance:
+                with get_conn() as conn:
+                    execute(conn, """INSERT INTO horcrux_progress (horcrux_id, status, found_by, found_at)
+                                     VALUES (%s,'found',%s,NOW())
+                                     ON CONFLICT (horcrux_id) DO UPDATE SET status='found', found_by=%s, found_at=NOW()""",
+                            hid, user_id, user_id)
+                add_xp(user_id, h["xp"] // 2)
+                return _cors(web.json_response(_list_payload(f"🔍 Найден: {h['emoji']} {h['name']}! +{h['xp']//2} XP", ok=True)))
+            else:
+                return _cors(web.json_response(_list_payload("🌫️ Поиски не увенчались успехом. Попробуй снова.", ok=False)))
+        elif action == "destroy":
+            hid = body.get("horcrux", "")
+            h = _hx_by_id(hid)
+            if not h:
+                return _cors(web.json_response(_list_payload("Крестраж не найден", ok=False)))
+            state = _get_horcrux_state()
+            row = state.get(hid, {})
+            if row.get("status") == "destroyed":
+                return _cors(web.json_response(_list_payload("Уже уничтожен", ok=False)))
+            if row.get("status") != "found":
+                return _cors(web.json_response(_list_payload("Сначала найди крестраж", ok=False)))
+            # Проверка предмета
+            if h.get("destroy_item"):
+                with get_conn() as conn:
+                    inv = fetchrow(conn, "SELECT quantity FROM inventory WHERE user_id=%s AND item_id=%s", user_id, h["destroy_item"])
+                if not inv or inv["quantity"] < 1:
+                    idata = ITEMS.get(h["destroy_item"], {})
+                    nm = item_display_name(idata, "ru") if idata else h["destroy_item"]
+                    return _cors(web.json_response(_list_payload(f"Нужен предмет: {nm}", ok=False)))
+                with get_conn() as conn:
+                    execute(conn, "UPDATE inventory SET quantity=quantity-1 WHERE user_id=%s AND item_id=%s", user_id, h["destroy_item"])
+            # Проверка заклинания
+            if h.get("destroy_spell"):
+                spells = [r["spell_id"] for r in (get_user_spells(user_id) or [])]
+                if h["destroy_spell"] not in spells:
+                    return _cors(web.json_response(_list_payload(f"Нужно заклинание: {h['destroy_spell']}", ok=False)))
+            with get_conn() as conn:
+                execute(conn, """UPDATE horcrux_progress SET status='destroyed', destroyed_by=%s, destroyed_at=NOW()
+                                 WHERE horcrux_id=%s""", user_id, hid)
+            add_xp(user_id, h["xp"]); add_gold(user_id, h["gold"])
+            return _cors(web.json_response(_list_payload(f"💥 Уничтожен: {h['emoji']} {h['name']}! +{h['xp']} XP, +{h['gold']} 💰", ok=True)))
+        else:
+            return _cors(web.json_response(_list_payload()))
+    except Exception as e:
+        logger.warning("horcruxes %s: %s", action, e)
+        return _cors(web.json_response({"horcruxes": [], "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_journal(request):
+    """Журнал игрока: последние события."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    from database import get_conn, fetchall
+    try:
+        from handlers.player_journal import _ensure_journal_table
+        _ensure_journal_table()
+    except Exception:
+        pass
+    try:
+        with get_conn() as conn:
+            rows = fetchall(conn, """SELECT event_type, title, description, xp_gained, gold_gained, item_gained, created_at
+                                     FROM player_journal WHERE user_id=%s ORDER BY created_at DESC LIMIT 30""", user_id)
+        type_emoji = {"battle": "⚔️", "quest": "📜", "levelup": "⭐", "achievement": "🏅",
+                      "pvp": "🤺", "boss": "🐲", "explore": "🗺️", "shop": "🛒", "craft": "🔨"}
+        entries = []
+        for r in rows:
+            extras = []
+            if r.get("xp_gained"): extras.append(f"+{r['xp_gained']} XP")
+            if r.get("gold_gained"): extras.append(f"+{r['gold_gained']} 💰")
+            if r.get("item_gained"): extras.append(f"📦 {r['item_gained']}")
+            entries.append({
+                "emoji": type_emoji.get(r.get("event_type"), "📖"),
+                "title": r.get("title", ""), "desc": r.get("description", ""),
+                "extras": " • ".join(extras),
+            })
+        return _cors(web.json_response({"entries": entries}))
+    except Exception as e:
+        logger.warning("journal: %s", e)
+        return _cors(web.json_response({"entries": []}))
+
+
+async def handle_settings(request):
+    """Настройки: action = get | set_lang | set_pvp_block."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "get")
+    from database import get_user, get_setting, set_setting
+    try:
+        if action == "set_lang":
+            lang = body.get("lang", "ru")
+            if lang in ("ru", "en"):
+                from database import set_user_lang
+                set_user_lang(user_id, lang)
+                try:
+                    from utils.i18n import set_cached_lang
+                    set_cached_lang(user_id, lang)
+                except Exception:
+                    pass
+            return _cors(web.json_response({"ok": True, "msg": "✅ Язык изменён", "lang": lang}))
+        elif action == "set_pvp_block":
+            blocked = bool(body.get("blocked", False))
+            set_setting(f"pvp_block:{user_id}", "1" if blocked else "0")
+            return _cors(web.json_response({"ok": True, "pvpBlock": blocked}))
+        else:
+            user = get_user(user_id)
+            pvp_block = get_setting(f"pvp_block:{user_id}", "0") == "1"
+            return _cors(web.json_response({
+                "lang": user.get("lang", "ru") if user else "ru",
+                "pvpBlock": pvp_block,
+                "wizardName": user.get("wizard_name", "") if user else "",
+                "userId": user_id,
+            }))
+    except Exception as e:
+        logger.warning("settings %s: %s", action, e)
+        return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2093,8 +2276,12 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/room", handle_options)
     app.router.add_post("/api/blackmarket", handle_blackmarket)
     app.router.add_options("/api/blackmarket", handle_options)
-    app.router.add_post("/api/room", handle_room)
-    app.router.add_options("/api/room", handle_options)
+    app.router.add_post("/api/horcruxes", handle_horcruxes)
+    app.router.add_options("/api/horcruxes", handle_options)
+    app.router.add_post("/api/journal", handle_journal)
+    app.router.add_options("/api/journal", handle_options)
+    app.router.add_post("/api/settings", handle_settings)
+    app.router.add_options("/api/settings", handle_options)
     return app
 
 
