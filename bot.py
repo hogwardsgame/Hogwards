@@ -157,6 +157,10 @@ def main():
     register_miniapp_handlers(app)
     register_admin_panel_handlers(app)
 
+    # ── Заглушка: вся игра в Mini App, бот только для входа и админки ─────────
+    from handlers.game_gate import register_gate_handler
+    register_gate_handler(app)
+
     # ── Глобальный трекер активности ─────────────────────────────────────────
     # Срабатывает на ЛЮБОЕ обновление от игрока (команды, callback, текст),
     # обновляет last_active. Группа 99 — последняя, ничего не блокирует.
