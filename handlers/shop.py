@@ -32,12 +32,17 @@ def _ensure_daily_shop():
         if rows:
             return rows
         stock = generate_shop_inventory(SHOP_SIZE)
+        # Зелье улучшения умений — всегда в продаже
+        from game.items import get_item
+        up = get_item("ability_upgrade_potion")
+        if up and not any(it["id"] == "ability_upgrade_potion" for it in stock):
+            stock.insert(0, up)
         for item in stock:
             price = _base_price(item)
             execute(conn, """
                 INSERT INTO shop_items (item_id, price_gold, stock, available_until)
                 VALUES (%s, %s, %s, (CURRENT_DATE + INTERVAL '1 day'))
-            """, item["id"], price, 10)
+            """, item["id"], price, -1 if item["id"] == "ability_upgrade_potion" else 10)
         return fetchall(conn, "SELECT * FROM shop_items WHERE available_until::date >= CURRENT_DATE ORDER BY id")
 
 def _base_price(item: dict) -> int:
