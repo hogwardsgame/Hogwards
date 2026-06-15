@@ -272,6 +272,11 @@ CONSUMABLES = {
         "emoji": "💧", "name": {"ru": "Зелье маны"},
         "desc_ru": "Восстанавливает 60 маны", "effect": "mana", "value": 60, "price": 60,
     },
+    "ability_upgrade_potion": {
+        "id": "ability_upgrade_potion", "type": "consumable", "rarity": "rare",
+        "emoji": "⚗️", "name": {"ru": "Зелье улучшения умений"},
+        "desc_ru": "Даёт 25 XP выбранному боевому умению Арены", "effect": "ability_xp", "value": 25, "price": 150,
+    },
     "mana_potion_large": {
         "id": "mana_potion_large", "type": "consumable", "rarity": "rare",
         "emoji": "💙", "name": {"ru": "Большое зелье маны"},
