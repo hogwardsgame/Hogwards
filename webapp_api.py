@@ -2210,6 +2210,130 @@ async def handle_settings(request):
         return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
 
 
+async def handle_triwizard(request):
+    """Триволшебный турнир: action = status | register | trial | choice."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "status")
+    from database import get_user, get_conn, execute, fetchall, fetchrow, add_xp, add_gold
+    try:
+        from handlers.triwizard import TRIALS, _get_participant, _ensure_triwizard_tables
+    except Exception as e:
+        logger.warning("tw import: %s", e)
+        return _cors(web.json_response({"registered": False}))
+    house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
+    try:
+        _ensure_triwizard_tables()
+        user = get_user(user_id)
+        lvl = user.get("level", 1) if user else 1
+
+        def _status_payload(msg=None, ok=True, result=None):
+            p = _get_participant(user_id)
+            trials = []
+            for i, tr in enumerate(TRIALS):
+                done = p and p.get(f"trial{i+1}_done")
+                trials.append({
+                    "idx": i, "name": tr["name"], "desc": tr["desc"],
+                    "minLevel": tr["min_level"], "locked": lvl < tr["min_level"],
+                    "done": bool(done), "options": tr["options"],
+                })
+            try:
+                with get_conn() as conn:
+                    rows = fetchall(conn, """SELECT u.wizard_name, u.house, tp.total_score,
+                        tp.trial1_done, tp.trial2_done, tp.trial3_done
+                        FROM triwizard_participants tp JOIN users u ON u.user_id=tp.user_id
+                        ORDER BY tp.total_score DESC LIMIT 10""")
+            except Exception:
+                rows = []
+            top = []
+            for i, r in enumerate(rows, 1):
+                done = sum([r["trial1_done"], r["trial2_done"], r["trial3_done"]])
+                top.append({"place": i, "name": r["wizard_name"],
+                            "house": house_emojis.get(r["house"], "🏰"),
+                            "score": r["total_score"], "trials": done})
+            return {"registered": p is not None, "score": p["total_score"] if p else 0,
+                    "trials": trials, "top": top, "ok": ok, "msg": msg, "result": result}
+
+        if action == "register":
+            if _get_participant(user_id):
+                return _cors(web.json_response(_status_payload("Ты уже зарегистрирован", ok=False)))
+            with get_conn() as conn:
+                execute(conn, "INSERT INTO triwizard_participants (user_id) VALUES (%s) ON CONFLICT DO NOTHING", user_id)
+            return _cors(web.json_response(_status_payload("✅ Ты участник Триволшебного турнира!", ok=True)))
+        elif action == "choice":
+            p = _get_participant(user_id)
+            if not p:
+                return _cors(web.json_response(_status_payload("Сначала зарегистрируйся", ok=False)))
+            trial_idx = int(body.get("trial", -1))
+            choice = int(body.get("choice", -1))
+            if trial_idx < 0 or trial_idx >= len(TRIALS):
+                return _cors(web.json_response(_status_payload("Испытание не найдено", ok=False)))
+            tr = TRIALS[trial_idx]
+            if lvl < tr["min_level"]:
+                return _cors(web.json_response(_status_payload(f"Нужен {tr['min_level']} уровень", ok=False)))
+            if p.get(f"trial{trial_idx+1}_done"):
+                return _cors(web.json_response(_status_payload("Испытание уже пройдено", ok=False)))
+            if choice < 0 or choice >= len(tr["outcomes"]):
+                return _cors(web.json_response(_status_payload("Неверный выбор", ok=False)))
+            out = tr["outcomes"][choice]
+            add_xp(user_id, out["xp"]); add_gold(user_id, out["gold"])
+            with get_conn() as conn:
+                execute(conn, f"UPDATE triwizard_participants SET trial{trial_idx+1}_done=TRUE, total_score=total_score+%s WHERE user_id=%s",
+                        out["score"], user_id)
+            result = {"msg": out["msg"], "xp": out["xp"], "gold": out["gold"], "score": out["score"]}
+            return _cors(web.json_response(_status_payload(ok=True, result=result)))
+        else:
+            return _cors(web.json_response(_status_payload()))
+    except Exception as e:
+        logger.warning("triwizard %s: %s", action, e)
+        return _cors(web.json_response({"registered": False, "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_war(request):
+    """Война факультетов: рейтинг домов + топ вкладчиков."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    from database import get_house_points, get_conn, fetchall
+    house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
+    house_names = {"gryffindor": "Гриффиндор", "slytherin": "Слизерин", "ravenclaw": "Когтевран", "hufflepuff": "Пуффендуй"}
+    try:
+        rows = get_house_points() or []
+        sorted_rows = sorted(rows, key=lambda r: r["points"], reverse=True)
+        max_pts = sorted_rows[0]["points"] if sorted_rows else 1
+        houses = []
+        for r in sorted_rows:
+            houses.append({
+                "house": r["house"], "emoji": house_emojis.get(r["house"], "🏠"),
+                "name": house_names.get(r["house"], r["house"]),
+                "points": r["points"], "pct": int(r["points"]/max(max_pts,1)*100),
+            })
+        try:
+            with get_conn() as conn:
+                contrib = fetchall(conn, """SELECT u.wizard_name, u.house, SUM(l.points) as total
+                    FROM house_points_log l JOIN users u ON u.user_id = l.user_id
+                    GROUP BY u.wizard_name, u.house ORDER BY total DESC LIMIT 10""")
+        except Exception:
+            contrib = []
+        top = [{"place": i, "name": c["wizard_name"], "house": house_emojis.get(c["house"], "🏰"),
+                "points": int(c["total"] or 0)} for i, c in enumerate(contrib, 1)]
+        return _cors(web.json_response({"houses": houses, "top": top}))
+    except Exception as e:
+        logger.warning("war: %s", e)
+        return _cors(web.json_response({"houses": [], "top": []}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2282,6 +2406,10 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/journal", handle_options)
     app.router.add_post("/api/settings", handle_settings)
     app.router.add_options("/api/settings", handle_options)
+    app.router.add_post("/api/triwizard", handle_triwizard)
+    app.router.add_options("/api/triwizard", handle_options)
+    app.router.add_post("/api/war", handle_war)
+    app.router.add_options("/api/war", handle_options)
     return app
 
 
