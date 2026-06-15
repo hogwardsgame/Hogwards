@@ -895,13 +895,16 @@ async def handle_league(request):
         nxt = _next_division(elo)
         # Моё место
         try:
+            from config import ADMIN_IDS as _ADM
+            _excl = list(_ADM) if _ADM else [0]
             with get_conn() as conn:
                 rank_row = fetchrow(conn, "SELECT COUNT(*)+1 AS rank FROM duel_league WHERE elo > %s", elo)
                 top_rows = fetchall(conn, """
                     SELECT d.user_id, d.elo, d.wins, d.losses, u.wizard_name, u.house
                     FROM duel_league d JOIN users u ON u.user_id = d.user_id
+                    WHERE d.user_id != ALL(%s)
                     ORDER BY d.elo DESC LIMIT 15
-                """)
+                """, _excl)
         except Exception:
             rank_row = {"rank": "—"}; top_rows = []
         house_emojis = {"gryffindor": "🦁", "slytherin": "🐍", "ravenclaw": "🦅", "hufflepuff": "🦡"}
@@ -2244,11 +2247,14 @@ async def handle_triwizard(request):
                     "done": bool(done), "options": tr["options"],
                 })
             try:
+                from config import ADMIN_IDS as _ADM
+                _excl = list(_ADM) if _ADM else [0]
                 with get_conn() as conn:
                     rows = fetchall(conn, """SELECT u.wizard_name, u.house, tp.total_score,
                         tp.trial1_done, tp.trial2_done, tp.trial3_done
                         FROM triwizard_participants tp JOIN users u ON u.user_id=tp.user_id
-                        ORDER BY tp.total_score DESC LIMIT 10""")
+                        WHERE tp.user_id != ALL(%s)
+                        ORDER BY tp.total_score DESC LIMIT 10""", _excl)
             except Exception:
                 rows = []
             top = []
@@ -2320,10 +2326,13 @@ async def handle_war(request):
                 "points": r["points"], "pct": int(r["points"]/max(max_pts,1)*100),
             })
         try:
+            from config import ADMIN_IDS as _ADM
+            _excl = list(_ADM) if _ADM else [0]
             with get_conn() as conn:
                 contrib = fetchall(conn, """SELECT u.wizard_name, u.house, SUM(l.points) as total
                     FROM house_points_log l JOIN users u ON u.user_id = l.user_id
-                    GROUP BY u.wizard_name, u.house ORDER BY total DESC LIMIT 10""")
+                    WHERE u.user_id != ALL(%s)
+                    GROUP BY u.wizard_name, u.house ORDER BY total DESC LIMIT 10""", _excl)
         except Exception:
             contrib = []
         top = [{"place": i, "name": c["wizard_name"], "house": house_emojis.get(c["house"], "🏰"),
