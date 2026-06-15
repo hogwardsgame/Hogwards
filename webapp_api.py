@@ -1832,6 +1832,201 @@ async def handle_titles(request):
         return _cors(web.json_response({"titles": [], "ok": False, "msg": "Ошибка"}))
 
 
+
+async def handle_hogsmeade(request):
+    """Хогсмид: action = list | buy. Лавки с фиксированными товарами."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user, get_conn, execute, add_item_to_inventory
+    try:
+        from handlers.hogsmeade import SHOPS
+        from game.items import ITEMS, item_display_name
+    except Exception as e:
+        logger.warning("hogsmeade import: %s", e)
+        return _cors(web.json_response({"shops": []}))
+    try:
+        user = get_user(user_id)
+        if action == "buy":
+            shop_id = body.get("shop", "")
+            item_id = body.get("item", "")
+            shop = SHOPS.get(shop_id)
+            if not shop:
+                return _cors(web.json_response({"ok": False, "msg": "Лавка не найдена"}))
+            entry = next((e for e in shop["items"] if e["id"] == item_id), None)
+            if not entry:
+                return _cors(web.json_response({"ok": False, "msg": "Товар не найден"}))
+            price = entry["price"]
+            if user["gold"] < price:
+                return _cors(web.json_response({"ok": False, "msg": f"Не хватает золота (нужно {price} 💰)"}))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", price, user_id)
+            add_item_to_inventory(user_id, item_id, 1)
+            idata = ITEMS.get(item_id, {})
+            name = item_display_name(idata, "ru") if idata else item_id
+            return _cors(web.json_response({"ok": True, "msg": f"✅ Куплено: {name}",
+                "gold": get_user(user_id)["gold"]}))
+        else:
+            shops = []
+            for sid, shop in SHOPS.items():
+                items = []
+                for entry in shop.get("items", []):
+                    idata = ITEMS.get(entry["id"], {})
+                    if not idata: continue
+                    items.append({
+                        "id": entry["id"],
+                        "name": item_display_name(idata, "ru"),
+                        "emoji": idata.get("emoji", "📦"),
+                        "price": entry["price"], "stock": entry.get("stock", 1),
+                    })
+                if items:  # только лавки с фиксированными товарами
+                    shops.append({"id": sid, "name": shop["name"], "desc": shop.get("desc", ""), "items": items})
+            return _cors(web.json_response({"shops": shops, "gold": user["gold"] if user else 0}))
+    except Exception as e:
+        logger.warning("hogsmeade %s: %s", action, e)
+        return _cors(web.json_response({"shops": [], "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_room(request):
+    """Комната волшебника: action = info | collect | buy."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "info")
+    from database import get_user, get_conn, execute, add_gold, add_xp
+    try:
+        from handlers.my_room import (UPGRADES, _get_room, _owned_upgrades, _income_rates,
+                                      _pending_income, _ensure_table)
+    except Exception as e:
+        logger.warning("room import: %s", e)
+        return _cors(web.json_response({"upgrades": []}))
+    try:
+        _ensure_table()
+        user = get_user(user_id)
+        room = _get_room(user_id)
+        owned = _owned_upgrades(room)
+
+        def _info(msg=None, ok=True):
+            r = _get_room(user_id)
+            ow = _owned_upgrades(r)
+            gph, xph = _income_rates(ow)
+            pg, px, hours = _pending_income(r)
+            u = get_user(user_id)
+            ups = []
+            for uid, up in UPGRADES.items():
+                ups.append({
+                    "id": uid, "name": up["name"], "desc": up["desc"], "price": up["price"],
+                    "goldPerHour": up["gold_per_hour"], "xpPerHour": up["xp_per_hour"],
+                    "owned": uid in ow,
+                })
+            return {"goldPerHour": gph, "xpPerHour": xph,
+                    "pendingGold": pg, "pendingXp": px,
+                    "gold": u["gold"] if u else 0,
+                    "upgrades": ups, "ok": ok, "msg": msg}
+
+        if action == "collect":
+            pg, px, hours = _pending_income(room)
+            if pg <= 0 and px <= 0:
+                return _cors(web.json_response(_info("Пока нечего собирать", ok=False)))
+            if pg: add_gold(user_id, pg)
+            if px: add_xp(user_id, px)
+            with get_conn() as conn:
+                execute(conn, "UPDATE player_room SET last_collect=NOW() WHERE user_id=%s", user_id)
+            return _cors(web.json_response(_info(f"✅ Собрано: +{pg} 💰, +{px} XP", ok=True)))
+        elif action == "buy":
+            uid = body.get("upgrade", "")
+            up = UPGRADES.get(uid)
+            if not up:
+                return _cors(web.json_response(_info("Улучшение не найдено", ok=False)))
+            if uid in owned:
+                return _cors(web.json_response(_info("Уже куплено", ok=False)))
+            if user["gold"] < up["price"]:
+                return _cors(web.json_response(_info(f"Не хватает золота (нужно {up['price']} 💰)", ok=False)))
+            new_upgrades = (room.get("upgrades") or "")
+            new_upgrades = (new_upgrades + "," + uid) if new_upgrades else uid
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", up["price"], user_id)
+                execute(conn, "UPDATE player_room SET upgrades=%s WHERE user_id=%s", new_upgrades, user_id)
+            return _cors(web.json_response(_info(f"✅ Куплено: {up['name']}", ok=True)))
+        else:
+            return _cors(web.json_response(_info()))
+    except Exception as e:
+        logger.warning("room %s: %s", action, e)
+        return _cors(web.json_response({"upgrades": [], "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_blackmarket(request):
+    """Чёрный рынок: action = list | buy."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user, get_conn, execute, add_item_to_inventory
+    try:
+        from handlers.black_market import (_get_current_stock, _next_rotation_str,
+                                          _user_bought_this_rotation, _ensure_bm_table,
+                                          _get_rotation_seed)
+        from game.items import ITEMS, item_display_name
+    except Exception as e:
+        logger.warning("bm import: %s", e)
+        return _cors(web.json_response({"items": []}))
+    try:
+        _ensure_bm_table()
+        user = get_user(user_id)
+        stock = _get_current_stock()
+        if action == "buy":
+            item_id = body.get("item", "")
+            slot = next((s for s in stock if s["item_id"] == item_id), None)
+            if not slot:
+                return _cors(web.json_response({"ok": False, "msg": "Товара нет в продаже"}))
+            if _user_bought_this_rotation(user_id, item_id):
+                return _cors(web.json_response({"ok": False, "msg": "Уже куплено в этой ротации"}))
+            if user["gold"] < slot["price"]:
+                return _cors(web.json_response({"ok": False, "msg": f"Нужно {slot['price']} 💰"}))
+            with get_conn() as conn:
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", slot["price"], user_id)
+                execute(conn, "INSERT INTO bm_purchases (user_id, item_id, rotation) VALUES (%s,%s,%s)",
+                        user_id, item_id, _get_rotation_seed())
+            add_item_to_inventory(user_id, item_id, 1)
+            idata = ITEMS.get(item_id, {})
+            name = item_display_name(idata, "ru") if idata else item_id
+            return _cors(web.json_response({"ok": True, "msg": f"✅ Куплено: {name}",
+                "gold": get_user(user_id)["gold"]}))
+        else:
+            items = []
+            for slot in stock:
+                idata = ITEMS.get(slot["item_id"], {})
+                if not idata: continue
+                items.append({
+                    "id": slot["item_id"],
+                    "name": item_display_name(idata, "ru"),
+                    "emoji": idata.get("emoji", "🕯️"),
+                    "price": slot["price"],
+                    "bought": _user_bought_this_rotation(user_id, slot["item_id"]),
+                })
+            return _cors(web.json_response({"items": items, "gold": user["gold"] if user else 0,
+                "nextRotation": _next_rotation_str()}))
+    except Exception as e:
+        logger.warning("blackmarket %s: %s", action, e)
+        return _cors(web.json_response({"items": [], "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -1892,6 +2087,14 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/collections", handle_options)
     app.router.add_post("/api/titles", handle_titles)
     app.router.add_options("/api/titles", handle_options)
+    app.router.add_post("/api/hogsmeade", handle_hogsmeade)
+    app.router.add_options("/api/hogsmeade", handle_options)
+    app.router.add_post("/api/room", handle_room)
+    app.router.add_options("/api/room", handle_options)
+    app.router.add_post("/api/blackmarket", handle_blackmarket)
+    app.router.add_options("/api/blackmarket", handle_options)
+    app.router.add_post("/api/room", handle_room)
+    app.router.add_options("/api/room", handle_options)
     return app
 
 
