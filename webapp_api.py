@@ -2013,6 +2013,8 @@ async def handle_blackmarket(request):
                 "gold": get_user(user_id)["gold"]}))
         else:
             items = []
+            rarity_names = {"common":"Обычный","uncommon":"Необычный","rare":"Редкий",
+                            "very_rare":"Очень редкий","epic":"Эпический","legendary":"Легендарный","mythic":"Мифический"}
             for slot in stock:
                 idata = ITEMS.get(slot["item_id"], {})
                 if not idata: continue
@@ -2021,6 +2023,7 @@ async def handle_blackmarket(request):
                     "name": item_display_name(idata, "ru"),
                     "emoji": idata.get("emoji", "🕯️"),
                     "price": slot["price"],
+                    "rarity": rarity_names.get(idata.get("rarity", "common"), ""),
                     "bought": _user_bought_this_rotation(user_id, slot["item_id"]),
                 })
             return _cors(web.json_response({"items": items, "gold": user["gold"] if user else 0,
