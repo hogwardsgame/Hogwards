@@ -111,10 +111,25 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        await update.message.reply_text(
-            t(user_id, "already_registered"),
-            reply_markup=main_menu_keyboard(user_id),
-        )
+        from config import ADMIN_IDS as _ADMIN_IDS
+        if _ADMIN_IDS and user_id in _ADMIN_IDS:
+            await update.message.reply_text(
+                t(user_id, "already_registered"),
+                reply_markup=main_menu_keyboard(user_id),
+            )
+        else:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, ReplyKeyboardRemove
+            await update.message.reply_text("🪄", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text(
+                "🎮 <b>Добро пожаловать в Хогвартс!</b>\n\n"
+                "Вся игра теперь в приложении: бои, дуэли, магазин, питомцы, "
+                "турниры и многое другое.\n\nНажми кнопку ниже, чтобы играть 👇",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🪄 Открыть игру",
+                        web_app=WebAppInfo(url="https://hogwardsgame.github.io/hogwarts-app/"))
+                ]]),
+            )
         return ConversationHandler.END
     await update.message.reply_text(t_lang("ru", "choose_lang"), reply_markup=lang_keyboard())
     return CHOOSE_LANG
@@ -209,11 +224,25 @@ async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if banner:
         menu_text = f"{menu_text}\n━━━━━━━━━━━━━━━━━━━━{banner}"
 
-    await update.message.reply_text(
-        menu_text,
-        parse_mode="Markdown",
-        reply_markup=main_menu_keyboard(user_id),
-    )
+    from config import ADMIN_IDS as _ADMIN_IDS
+    if _ADMIN_IDS and user_id in _ADMIN_IDS:
+        await update.message.reply_text(
+            menu_text,
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard(user_id),
+        )
+    else:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, ReplyKeyboardRemove
+        await update.message.reply_text("🎉 Готово!", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(
+            "✨ <b>Твой волшебник создан!</b>\n\n"
+            "Теперь вся игра ждёт тебя в приложении. Жми кнопку и начинай приключение 👇",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🪄 Открыть игру",
+                    web_app=WebAppInfo(url="https://hogwardsgame.github.io/hogwarts-app/"))
+            ]]),
+        )
 
 
 # ── Таблица маршрутизации кнопок ──────────────────────────────────────────────
