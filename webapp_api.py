@@ -143,6 +143,43 @@ async def handle_profile(request):
     # Титул
     data["title"] = user.get("title") or ""
 
+    # Моделька персонажа (эмодзи для дуэли)
+    try:
+        from database import get_conn as _gcm, fetchrow as _frm, execute as _exm
+        with _gcm() as conn:
+            _exm(conn, "CREATE TABLE IF NOT EXISTS player_model (user_id BIGINT PRIMARY KEY, model TEXT DEFAULT '🧙')")
+            _mr = _frm(conn, "SELECT model FROM player_model WHERE user_id=%s", int(user_id))
+        data["model"] = (_mr["model"] if _mr else None) or "🧙"
+    except Exception:
+        data["model"] = "🧙"
+
+    # Раскладка статов: база + вклад источников (плащ/снаряжение)
+    try:
+        base_atk = user.get("attack", 10)
+        base_def = user.get("defense", 5)
+        cloak_atk = cloak_def = 0
+        try:
+            from game.cloaks import get_cloak_bonuses as _gcb
+            _cb = _gcb(user_id)
+            cloak_atk = _cb["atk"]; cloak_def = _cb["def"]
+        except Exception:
+            pass
+        # вклад снаряжения (сумма bonus у надетых)
+        equip_bonus = 0
+        try:
+            from database import get_conn as _gcb2, fetchall as _fab
+            with _gcb2() as conn:
+                _eq = _fab(conn, "SELECT bonus FROM equipped_items WHERE user_id=%s", int(user_id))
+            equip_bonus = sum((r.get("bonus", 0) or 0) for r in _eq)
+        except Exception:
+            pass
+        data["statsBreakdown"] = {
+            "atk": {"base": base_atk, "cloak": cloak_atk, "equip": equip_bonus},
+            "def": {"base": base_def, "cloak": cloak_def},
+        }
+    except Exception:
+        data["statsBreakdown"] = None
+
     # Винрейт дуэлей
     try:
         from database import get_conn as _gc, fetchrow as _fr
@@ -2969,10 +3006,18 @@ async def handle_pvpduel(request):
     try:
         user = get_user(user_id)
         wname = (user.get("wizard_name") if user else None) or "Игрок"
-        # эмодзи модельки по факультету
+        # моделька персонажа (выбранная игроком, иначе по факультету)
         house = (user.get("house") if user else "") or ""
         house_emoji_map = {"gryffindor":"🦁","slytherin":"🐍","ravenclaw":"🦅","hufflepuff":"🦡"}
         pemoji = house_emoji_map.get(house, "🧙")
+        try:
+            from database import get_conn as _gcp, fetchrow as _frp
+            with _gcp() as conn:
+                _mr = _frp(conn, "SELECT model FROM player_model WHERE user_id=%s", user_id)
+            if _mr and _mr.get("model"):
+                pemoji = _mr["model"]
+        except Exception:
+            pass
         if action == "find":
             return _cors(web.json_response(LD.find_or_queue(user_id, wname, pemoji)))
         elif action == "cancel":
@@ -2998,6 +3043,84 @@ async def handle_pvpduel(request):
     except Exception as e:
         logger.warning("liveduel %s: %s", action, e)
         return _cors(web.json_response({"error": "fail", "msg": str(e)}))
+
+
+async def handle_characters(request):
+    """Персонажи: action = list | set."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user
+    try:
+        from game.characters import get_character_list, set_character
+    except Exception as e:
+        logger.warning("characters import: %s", e)
+        return _cors(web.json_response({"characters": []}))
+    # уровень и победы в дуэли
+    user = get_user(user_id)
+    level = user.get("level", 1) if user else 1
+    try:
+        from game.duel_league import get_duel_rating
+        dwins = get_duel_rating(user_id)["wins"]
+    except Exception:
+        dwins = 0
+    try:
+        if action == "set":
+            cid = body.get("char", "")
+            # проверяем разблокировку
+            from game.characters import is_unlocked
+            if not is_unlocked(cid, level, dwins):
+                return _cors(web.json_response({"ok": False, "msg": "Персонаж ещё не открыт",
+                    "characters": get_character_list(user_id, level, dwins)}))
+            if set_character(user_id, cid):
+                return _cors(web.json_response({"ok": True, "msg": "✅ Персонаж выбран",
+                    "characters": get_character_list(user_id, level, dwins)}))
+            return _cors(web.json_response({"ok": False, "msg": "Ошибка",
+                "characters": get_character_list(user_id, level, dwins)}))
+        else:
+            return _cors(web.json_response({"characters": get_character_list(user_id, level, dwins),
+                "level": level, "duelWins": dwins}))
+    except Exception as e:
+        logger.warning("characters %s: %s", action, e)
+        return _cors(web.json_response({"characters": [], "ok": False}))
+
+
+async def handle_setmodel(request):
+    """Выбор модельки персонажа (эмодзи). action: get | set."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "get")
+    # допустимые модельки
+    MODELS = ["🧙","🧙‍♂️","🧙‍♀️","🦹","🦹‍♂️","🦹‍♀️","🧝","🧝‍♂️","🧝‍♀️","🧚","🧛","🦸","🤴","👸","🥷","👨‍🎤","🧜","🧞"]
+    from database import get_conn, fetchrow, execute
+    try:
+        with get_conn() as conn:
+            execute(conn, "CREATE TABLE IF NOT EXISTS player_model (user_id BIGINT PRIMARY KEY, model TEXT DEFAULT '🧙')")
+            if action == "set":
+                model = body.get("model", "🧙")
+                if model not in MODELS:
+                    return _cors(web.json_response({"ok": False, "msg": "Недоступная модель", "models": MODELS}))
+                execute(conn, """INSERT INTO player_model (user_id, model) VALUES (%s,%s)
+                                 ON CONFLICT (user_id) DO UPDATE SET model=%s""", user_id, model, model)
+                return _cors(web.json_response({"ok": True, "model": model, "models": MODELS}))
+            else:
+                row = fetchrow(conn, "SELECT model FROM player_model WHERE user_id=%s", user_id)
+                return _cors(web.json_response({"ok": True, "model": (row["model"] if row else "🧙"), "models": MODELS}))
+    except Exception as e:
+        logger.warning("setmodel: %s", e)
+        return _cors(web.json_response({"ok": False, "models": MODELS}))
 
 
 def _build_app() -> web.Application:
@@ -3094,6 +3217,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/duelrank", handle_options)
     app.router.add_post("/api/pvpduel", handle_pvpduel)
     app.router.add_options("/api/pvpduel", handle_options)
+    app.router.add_post("/api/setmodel", handle_setmodel)
+    app.router.add_options("/api/setmodel", handle_options)
     return app
 
 
