@@ -126,6 +126,20 @@ async def handle_profile(request):
         "id":         user_id,
     }
 
+    # Бонусы активного плаща
+    try:
+        from game.cloaks import get_cloak_bonuses, get_active_cloak, CLOAKS
+        cb = get_cloak_bonuses(user_id)
+        data["atk"] += cb["atk"]
+        data["def"] += cb["def"]
+        data["maxHp"] += cb["hp"]
+        data["maxMana"] += cb["mana"]
+        acid = get_active_cloak(user_id)
+        ac = CLOAKS.get(acid, {})
+        data["cloak"] = {"id": acid, "name": ac.get("name",""), "emoji": ac.get("emoji","🧥"), "color": ac.get("color","#9aa0b5")}
+    except Exception:
+        data["cloak"] = {"id": "novice", "name": "Плащ ученика", "emoji": "🧥", "color": "#9aa0b5"}
+
     # Титул
     data["title"] = user.get("title") or ""
 
@@ -2686,6 +2700,25 @@ async def handle_arena_reward(request):
                     "msg": f"🏆 Победа! +{gold} 💰, +{xp} XP{bonus}"}
             if unlocked_card:
                 resp["unlockedCard"] = unlocked_card
+            # выпадение плащей за победы в дуэли
+            try:
+                from game.cloaks import CLOAK_WIN_DROPS, get_owned_cloaks, give_cloak, CLOAKS
+                from database import get_conn as _gc2, execute as _ex2, fetchrow as _fr2
+                with _gc2() as conn:
+                    _ex2(conn, """CREATE TABLE IF NOT EXISTS duel_win_count (
+                        user_id BIGINT PRIMARY KEY, wins INT DEFAULT 0)""")
+                    wr = _fr2(conn, "SELECT wins FROM duel_win_count WHERE user_id=%s", user_id)
+                    dwins = (wr["wins"] if wr else 0) + 1
+                    _ex2(conn, """INSERT INTO duel_win_count (user_id, wins) VALUES (%s,%s)
+                                  ON CONFLICT (user_id) DO UPDATE SET wins=%s""", user_id, dwins, dwins)
+                owned = get_owned_cloaks(user_id)
+                for cloak_id, need in CLOAK_WIN_DROPS:
+                    if dwins >= need and cloak_id not in owned:
+                        give_cloak(user_id, cloak_id)
+                        resp["unlockedCloak"] = {"name": CLOAKS[cloak_id]["name"], "emoji": CLOAKS[cloak_id]["emoji"]}
+                        break
+            except Exception as e:
+                logger.warning("cloak drop: %s", e)
             return _cors(web.json_response(resp))
         else:
             # утешительная мелочь за участие
@@ -2787,6 +2820,71 @@ CARD_UNLOCK_ORDER = [
 ]
 
 
+async def handle_cloaks(request):
+    """Плащи: action = list | equip | buy."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user, add_gold
+    try:
+        from game.cloaks import (CLOAKS, get_owned_cloaks, get_active_cloak,
+                                  set_active_cloak, give_cloak)
+    except Exception as e:
+        logger.warning("cloaks import: %s", e)
+        return _cors(web.json_response({"cloaks": []}))
+    rarity_names = {"common":"Обычный","rare":"Редкий","epic":"Эпический","legendary":"Легендарный"}
+    try:
+        def _payload(msg=None, ok=True):
+            owned = get_owned_cloaks(user_id)
+            active = get_active_cloak(user_id)
+            user = get_user(user_id)
+            gold = user.get("gold", 0) if user else 0
+            out = []
+            for cid, c in CLOAKS.items():
+                out.append({
+                    "id": cid, "name": c["name"], "emoji": c["emoji"], "color": c["color"],
+                    "rarity": rarity_names.get(c["rarity"], ""), "rarityKey": c["rarity"],
+                    "price": c["price"], "atk": c.get("atk",0), "def": c.get("def",0),
+                    "hp": c.get("hp",0), "mana": c.get("mana",0), "desc": c["desc"],
+                    "owned": cid in owned, "active": cid == active,
+                })
+            # сортировка по цене
+            out.sort(key=lambda x: x["price"])
+            return {"cloaks": out, "gold": gold, "active": active, "ok": ok, "msg": msg}
+
+        if action == "equip":
+            cid = body.get("cloak", "")
+            if set_active_cloak(user_id, cid):
+                return _cors(web.json_response(_payload("✅ Плащ надет", ok=True)))
+            return _cors(web.json_response(_payload("Плащ не доступен", ok=False)))
+        elif action == "buy":
+            cid = body.get("cloak", "")
+            c = CLOAKS.get(cid)
+            if not c:
+                return _cors(web.json_response(_payload("Плащ не найден", ok=False)))
+            owned = get_owned_cloaks(user_id)
+            if cid in owned:
+                return _cors(web.json_response(_payload("Уже куплено", ok=False)))
+            user = get_user(user_id)
+            if (user.get("gold", 0) if user else 0) < c["price"]:
+                return _cors(web.json_response(_payload("Недостаточно золота", ok=False)))
+            add_gold(user_id, -c["price"])
+            give_cloak(user_id, cid)
+            set_active_cloak(user_id, cid)
+            return _cors(web.json_response(_payload(f"✅ Куплен «{c['name']}» и надет!", ok=True)))
+        else:
+            return _cors(web.json_response(_payload()))
+    except Exception as e:
+        logger.warning("cloaks %s: %s", action, e)
+        return _cors(web.json_response({"cloaks": [], "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2875,6 +2973,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/carddeck", handle_options)
     app.router.add_post("/api/cardcollection", handle_cardcollection)
     app.router.add_options("/api/cardcollection", handle_options)
+    app.router.add_post("/api/cloaks", handle_cloaks)
+    app.router.add_options("/api/cloaks", handle_options)
     return app
 
 
