@@ -32,10 +32,12 @@ def ensure_tables():
             CREATE TABLE IF NOT EXISTS duel_queue (
                 user_id BIGINT PRIMARY KEY,
                 wizard_name TEXT,
+                emoji TEXT DEFAULT '🧙',
                 queued_at DOUBLE PRECISION,
                 match_id TEXT
             )
         """)
+        execute(conn, "ALTER TABLE duel_queue ADD COLUMN IF NOT EXISTS emoji TEXT DEFAULT '🧙'")
         execute(conn, """
             CREATE TABLE IF NOT EXISTS live_duels (
                 match_id TEXT PRIMARY KEY,
@@ -48,10 +50,10 @@ def ensure_tables():
         """)
 
 
-def _new_state(p1_id, p2_id, p1_name, p2_name):
+def _new_state(p1_id, p2_id, p1_name, p2_name, p1_emoji="🧙", p2_emoji="🧙‍♂️"):
     return {
-        "p1": {"id": p1_id, "name": p1_name, "hp": 130, "maxHp": 130, "r": 4, "c": 2, "burn": 0, "frozen": 0, "move": None, "spell": None, "aim": None, "ready": False},
-        "p2": {"id": p2_id, "name": p2_name, "hp": 130, "maxHp": 130, "r": 0, "c": 2, "burn": 0, "frozen": 0, "move": None, "spell": None, "aim": None, "ready": False},
+        "p1": {"id": p1_id, "name": p1_name, "emoji": p1_emoji, "hp": 130, "maxHp": 130, "r": 4, "c": 2, "burn": 0, "frozen": 0, "move": None, "spell": None, "aim": None, "ready": False},
+        "p2": {"id": p2_id, "name": p2_name, "emoji": p2_emoji, "hp": 130, "maxHp": 130, "r": 0, "c": 2, "burn": 0, "frozen": 0, "move": None, "spell": None, "aim": None, "ready": False},
         "turn": 1, "over": False, "winner": None, "log": "Бой начался!",
         "lastResolve": None, "turnStarted": time.time(),
     }
@@ -73,7 +75,7 @@ def _load(match_id):
     return row
 
 
-def find_or_queue(user_id, wizard_name):
+def find_or_queue(user_id, wizard_name, emoji="🧙"):
     """Поиск соперника. Возвращает {status: matched|waiting, matchId, side}."""
     ensure_tables()
     from database import get_conn, execute, fetchrow, fetchall
@@ -91,14 +93,15 @@ def find_or_queue(user_id, wizard_name):
         # чистим старые записи очереди (>60 сек)
         execute(conn, "DELETE FROM duel_queue WHERE queued_at < %s AND match_id IS NULL", now - 60)
         # ищем соперника в очереди (не себя, без матча)
-        opp = fetchrow(conn, """SELECT user_id, wizard_name FROM duel_queue
+        opp = fetchrow(conn, """SELECT user_id, wizard_name, emoji FROM duel_queue
                                 WHERE user_id != %s AND match_id IS NULL
                                 ORDER BY queued_at ASC LIMIT 1""", user_id)
         if opp:
             # создаём матч
             match_id = f"d{int(now)}_{random.randint(1000,9999)}"
             opp_id = opp["user_id"]
-            state = _new_state(opp_id, user_id, opp["wizard_name"] or "Соперник", wizard_name or "Игрок")
+            opp_emoji = opp.get("emoji") or "🧙"
+            state = _new_state(opp_id, user_id, opp["wizard_name"] or "Соперник", wizard_name or "Игрок", opp_emoji, emoji)
             execute(conn, """INSERT INTO live_duels (match_id, p1_id, p2_id, p1_name, p2_name, state, created_at, updated_at)
                              VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                     match_id, opp_id, user_id, opp["wizard_name"] or "Соперник", wizard_name or "Игрок",
@@ -109,10 +112,10 @@ def find_or_queue(user_id, wizard_name):
             return {"status": "matched", "matchId": match_id, "side": "p2"}
         else:
             # встаём в очередь
-            execute(conn, """INSERT INTO duel_queue (user_id, wizard_name, queued_at, match_id)
-                             VALUES (%s,%s,%s,NULL)
-                             ON CONFLICT (user_id) DO UPDATE SET queued_at=%s, match_id=NULL""",
-                    user_id, wizard_name, now, now)
+            execute(conn, """INSERT INTO duel_queue (user_id, wizard_name, emoji, queued_at, match_id)
+                             VALUES (%s,%s,%s,%s,NULL)
+                             ON CONFLICT (user_id) DO UPDATE SET queued_at=%s, match_id=NULL, emoji=%s""",
+                    user_id, wizard_name, emoji, now, now, emoji)
             return {"status": "waiting"}
 
 
@@ -124,13 +127,13 @@ def cancel_queue(user_id):
     return {"ok": True}
 
 
-def create_invite(user_id, wizard_name):
+def create_invite(user_id, wizard_name, emoji="🧙"):
     """Создать бой по приглашению. Возвращает matchId (код), которым делятся."""
     ensure_tables()
     from database import get_conn, execute
     now = time.time()
     match_id = f"inv{user_id % 100000}"  # код на основе ID, предсказуемый для друга
-    state = _new_state(user_id, 0, wizard_name or "Хозяин", "Ожидание...")
+    state = _new_state(user_id, 0, wizard_name or "Хозяин", "Ожидание...", emoji, "🧙")
     with get_conn() as conn:
         execute(conn, "DELETE FROM live_duels WHERE match_id=%s", match_id)
         execute(conn, """INSERT INTO live_duels (match_id, p1_id, p2_id, p1_name, p2_name, state, created_at, updated_at)
@@ -139,7 +142,7 @@ def create_invite(user_id, wizard_name):
     return {"matchId": match_id, "side": "p1"}
 
 
-def join_invite(user_id, wizard_name, host_id):
+def join_invite(user_id, wizard_name, host_id, emoji="🧙"):
     """Присоединиться к бою друга по его ID."""
     ensure_tables()
     from database import get_conn, execute, fetchrow
@@ -153,6 +156,7 @@ def join_invite(user_id, wizard_name, host_id):
             return {"status": "full"}
         state["p2"]["id"] = user_id
         state["p2"]["name"] = wizard_name or "Игрок"
+        state["p2"]["emoji"] = emoji
         execute(conn, "UPDATE live_duels SET p2_id=%s, p2_name=%s, state=%s WHERE match_id=%s",
                 user_id, wizard_name or "Игрок", json.dumps(state), match_id)
     return {"status": "matched", "matchId": match_id, "side": "p2"}
