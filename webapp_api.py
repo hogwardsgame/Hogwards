@@ -3283,6 +3283,52 @@ async def handle_castle(request):
         return _cors(web.json_response({"error": "fail"}))
 
 
+async def handle_chat(request):
+    """Мировой чат: action = feed | send."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "feed")
+    from database import get_user
+    try:
+        from game import world_chat as WC
+    except Exception as e:
+        logger.warning("chat import: %s", e)
+        return _cors(web.json_response({"messages": []}))
+    try:
+        if action == "send":
+            text = (body.get("text", "") or "").strip()
+            if not text:
+                return _cors(web.json_response({"ok": False}))
+            user = get_user(user_id)
+            name = (user.get("wizard_name") if user else None) or "Игрок"
+            house = (user.get("house") if user else "") or ""
+            level = (user.get("level", 1) if user else 1) or 1
+            # проверка на админ-команду
+            adm = WC.handle_admin_command(user_id, text)
+            if adm is not None:
+                if adm.get("ok") and not adm.get("silent"):
+                    # выполнили команду — показываем результат как системное
+                    WC.system_message("⚜️ " + adm["msg"])
+                return _cors(web.json_response({"ok": adm.get("ok", False), "cmdMsg": adm.get("msg", ""), "isCommand": True,
+                                                "messages": WC.get_feed(int(body.get("afterId", 0)))}))
+            res = WC.post_message(user_id, name, house, level, text)
+            return _cors(web.json_response({"ok": res.get("ok", False), "error": res.get("error"),
+                                            "errMsg": res.get("msg", ""),
+                                            "messages": WC.get_feed(int(body.get("afterId", 0)))}))
+        else:  # feed
+            after_id = int(body.get("afterId", 0))
+            return _cors(web.json_response({"messages": WC.get_feed(after_id)}))
+    except Exception as e:
+        logger.warning("chat %s: %s", action, e)
+        return _cors(web.json_response({"messages": [], "ok": False}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3385,6 +3431,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/duelboss", handle_options)
     app.router.add_post("/api/castle", handle_castle)
     app.router.add_options("/api/castle", handle_options)
+    app.router.add_post("/api/chat", handle_chat)
+    app.router.add_options("/api/chat", handle_options)
     return app
 
 
