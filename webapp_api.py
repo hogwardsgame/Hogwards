@@ -2969,19 +2969,23 @@ async def handle_pvpduel(request):
     try:
         user = get_user(user_id)
         wname = (user.get("wizard_name") if user else None) or "Игрок"
+        # эмодзи модельки по факультету
+        house = (user.get("house") if user else "") or ""
+        house_emoji_map = {"gryffindor":"🦁","slytherin":"🐍","ravenclaw":"🦅","hufflepuff":"🦡"}
+        pemoji = house_emoji_map.get(house, "🧙")
         if action == "find":
-            return _cors(web.json_response(LD.find_or_queue(user_id, wname)))
+            return _cors(web.json_response(LD.find_or_queue(user_id, wname, pemoji)))
         elif action == "cancel":
             return _cors(web.json_response(LD.cancel_queue(user_id)))
         elif action == "invite":
-            return _cors(web.json_response(LD.create_invite(user_id, wname)))
+            return _cors(web.json_response(LD.create_invite(user_id, wname, pemoji)))
         elif action == "join":
             host_id = body.get("hostId", "")
             try:
                 host_id = int(host_id)
             except Exception:
                 return _cors(web.json_response({"status": "notfound"}))
-            return _cors(web.json_response(LD.join_invite(user_id, wname, host_id)))
+            return _cors(web.json_response(LD.join_invite(user_id, wname, host_id, pemoji)))
         elif action == "move":
             match_id = body.get("matchId", "")
             move = body.get("move", "stay")
