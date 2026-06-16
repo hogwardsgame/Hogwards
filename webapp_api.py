@@ -2719,14 +2719,33 @@ async def handle_arena_reward(request):
                         break
             except Exception as e:
                 logger.warning("cloak drop: %s", e)
+            # рейтинг дуэли
+            try:
+                from game.duel_league import update_duel_rating
+                rr = update_duel_rating(user_id, True, difficulty)
+                resp["rating"] = rr["rating"]
+                resp["ratingDelta"] = rr["delta"]
+                resp["league"] = rr["league"]
+                resp["leagueUp"] = rr["leveledUp"]
+                resp["streak"] = rr["streak"]
+            except Exception as e:
+                logger.warning("duel rating win: %s", e)
             return _cors(web.json_response(resp))
         else:
             # утешительная мелочь за участие
             gold = int(10 * diff_mult)
             add_gold(user_id, gold)
-            return _cors(web.json_response({"ok": True, "won": False,
-                "gold": gold, "xp": 0,
-                "msg": f"Поражение. +{gold} 💰 за участие"}))
+            loss_resp = {"ok": True, "won": False, "gold": gold, "xp": 0,
+                "msg": f"Поражение. +{gold} 💰 за участие"}
+            try:
+                from game.duel_league import update_duel_rating
+                rr = update_duel_rating(user_id, False, difficulty)
+                loss_resp["rating"] = rr["rating"]
+                loss_resp["ratingDelta"] = rr["delta"]
+                loss_resp["league"] = rr["league"]
+            except Exception as e:
+                logger.warning("duel rating loss: %s", e)
+            return _cors(web.json_response(loss_resp))
     except Exception as e:
         logger.warning("arena_reward: %s", e)
         return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
@@ -2885,6 +2904,51 @@ async def handle_cloaks(request):
         return _cors(web.json_response({"cloaks": [], "ok": False, "msg": "Ошибка"}))
 
 
+async def handle_duelrank(request):
+    """Рейтинг дуэлей: action = me | top."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "me")
+    try:
+        from game.duel_league import get_duel_rating, get_league, get_duel_leaderboard
+    except Exception as e:
+        logger.warning("duelrank import: %s", e)
+        return _cors(web.json_response({"rating": 0}))
+    try:
+        if action == "top":
+            try:
+                from config import ADMIN_IDS
+                excl = list(ADMIN_IDS) or [0]
+            except Exception:
+                excl = [0]
+            top = get_duel_leaderboard(20, excl)
+            # моя позиция
+            me = get_duel_rating(user_id)
+            mylg = get_league(me["rating"])
+            return _cors(web.json_response({"top": top, "me": {
+                "rating": me["rating"], "wins": me["wins"], "losses": me["losses"],
+                "league": mylg["name"], "leagueEmoji": mylg["emoji"]}}))
+        else:
+            me = get_duel_rating(user_id)
+            lg = get_league(me["rating"])
+            total = me["wins"] + me["losses"]
+            wr = round(me["wins"] / total * 100) if total else 0
+            return _cors(web.json_response({
+                "rating": me["rating"], "wins": me["wins"], "losses": me["losses"],
+                "winrate": wr, "streak": me["streak"], "bestStreak": me["best_streak"],
+                "league": lg,
+            }))
+    except Exception as e:
+        logger.warning("duelrank %s: %s", action, e)
+        return _cors(web.json_response({"rating": 0, "ok": False}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2975,6 +3039,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/cardcollection", handle_options)
     app.router.add_post("/api/cloaks", handle_cloaks)
     app.router.add_options("/api/cloaks", handle_options)
+    app.router.add_post("/api/duelrank", handle_duelrank)
+    app.router.add_options("/api/duelrank", handle_options)
     return app
 
 
