@@ -2672,6 +2672,45 @@ async def handle_arena_reward(request):
         return _cors(web.json_response({"ok": False, "msg": "Ошибка"}))
 
 
+async def handle_carddeck(request):
+    """Колода игрока: action = get | save. Хранит до 12 карт."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "get")
+    from database import get_conn, execute, fetchrow
+    try:
+        with get_conn() as conn:
+            execute(conn, """CREATE TABLE IF NOT EXISTS card_decks (
+                user_id BIGINT PRIMARY KEY, cards TEXT DEFAULT '')""")
+        if action == "save":
+            cards = body.get("cards", [])
+            if not isinstance(cards, list):
+                return _cors(web.json_response({"ok": False, "msg": "Неверная колода"}))
+            # ограничение 12 карт, только строки
+            cards = [str(c) for c in cards][:12]
+            cards_str = ",".join(cards)
+            with get_conn() as conn:
+                execute(conn, """INSERT INTO card_decks (user_id, cards) VALUES (%s,%s)
+                                 ON CONFLICT (user_id) DO UPDATE SET cards=%s""",
+                        user_id, cards_str, cards_str)
+            return _cors(web.json_response({"ok": True, "cards": cards, "msg": "✅ Колода сохранена"}))
+        else:
+            with get_conn() as conn:
+                row = fetchrow(conn, "SELECT cards FROM card_decks WHERE user_id=%s", user_id)
+            cards = row["cards"].split(",") if row and row["cards"] else []
+            cards = [c for c in cards if c]
+            return _cors(web.json_response({"cards": cards}))
+    except Exception as e:
+        logger.warning("carddeck %s: %s", action, e)
+        return _cors(web.json_response({"cards": [], "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -2756,6 +2795,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/abilities", handle_options)
     app.router.add_post("/api/arena_reward", handle_arena_reward)
     app.router.add_options("/api/arena_reward", handle_options)
+    app.router.add_post("/api/carddeck", handle_carddeck)
+    app.router.add_options("/api/carddeck", handle_options)
     return app
 
 
