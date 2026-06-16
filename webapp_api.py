@@ -3123,6 +3123,54 @@ async def handle_setmodel(request):
         return _cors(web.json_response({"ok": False, "models": MODELS}))
 
 
+async def handle_duelpotion(request):
+    """Зелья в дуэли: action = list | use. Возвращает доступные HP-зелья и лечит."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    # зелья HP и сколько лечат в дуэли (нормализовано под дуэльное HP ~130)
+    DUEL_HEAL = {
+        "hp_potion_small":  {"heal": 20, "name": "Малое", "emoji": "🧪"},
+        "hp_potion_medium": {"heal": 35, "name": "Среднее", "emoji": "🧪"},
+        "hp_potion_large":  {"heal": 50, "name": "Большое", "emoji": "🧪"},
+    }
+    from database import get_conn, fetchall, fetchrow, execute
+    try:
+        with get_conn() as conn:
+            rows = fetchall(conn, "SELECT item_id, quantity FROM inventory WHERE user_id=%s AND item_id = ANY(%s)",
+                            user_id, list(DUEL_HEAL.keys()))
+        have = {r["item_id"]: r["quantity"] for r in rows if r["quantity"] > 0}
+
+        if action == "use":
+            pid = body.get("potion", "")
+            if pid not in DUEL_HEAL:
+                return _cors(web.json_response({"ok": False, "msg": "Неизвестное зелье"}))
+            if have.get(pid, 0) <= 0:
+                return _cors(web.json_response({"ok": False, "msg": "Нет такого зелья"}))
+            # списываем 1 шт
+            with get_conn() as conn:
+                execute(conn, "UPDATE inventory SET quantity = quantity - 1 WHERE user_id=%s AND item_id=%s", user_id, pid)
+                execute(conn, "DELETE FROM inventory WHERE user_id=%s AND item_id=%s AND quantity <= 0", user_id, pid)
+            return _cors(web.json_response({"ok": True, "heal": DUEL_HEAL[pid]["heal"], "potion": pid}))
+        else:
+            out = []
+            for pid, info in DUEL_HEAL.items():
+                cnt = have.get(pid, 0)
+                if cnt > 0:
+                    out.append({"id": pid, "name": info["name"], "emoji": info["emoji"],
+                                "heal": info["heal"], "count": cnt})
+            return _cors(web.json_response({"ok": True, "potions": out}))
+    except Exception as e:
+        logger.warning("duelpotion %s: %s", action, e)
+        return _cors(web.json_response({"ok": False, "potions": []}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3219,6 +3267,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/pvpduel", handle_options)
     app.router.add_post("/api/setmodel", handle_setmodel)
     app.router.add_options("/api/setmodel", handle_options)
+    app.router.add_post("/api/duelpotion", handle_duelpotion)
+    app.router.add_options("/api/duelpotion", handle_options)
     return app
 
 
