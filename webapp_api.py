@@ -3171,6 +3171,86 @@ async def handle_duelpotion(request):
         return _cors(web.json_response({"ok": False, "potions": []}))
 
 
+async def handle_duelboss(request):
+    """Боссы дуэли: action = list | start | reward."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user, add_gold, add_xp
+    try:
+        from game.duel_bosses import (BOSSES, get_boss_for_player, get_boss_progress,
+                                       mark_boss_defeated, give_ingredient, INGREDIENTS)
+    except Exception as e:
+        logger.warning("duelboss import: %s", e)
+        return _cors(web.json_response({"bosses": []}))
+    try:
+        user = get_user(user_id)
+        plvl = (user.get("level", 1) if user else 1) or 1
+        php = (user.get("max_hp", 100) if user else 100) or 100
+        # дуэльное HP игрока (как в openDuel)
+        duel_hp = int(100 + min(100, (php - 100) * 0.2))
+        if duel_hp < 100:
+            duel_hp = 100
+
+        if action == "start":
+            bid = body.get("boss", "")
+            boss = get_boss_for_player(bid, plvl, duel_hp)
+            if not boss:
+                return _cors(web.json_response({"ok": False, "msg": "Босс не найден"}))
+            return _cors(web.json_response({"ok": True, "boss": boss, "playerHp": duel_hp}))
+        elif action == "reward":
+            bid = body.get("boss", "")
+            won = body.get("won", False)
+            b = BOSSES.get(bid)
+            if not b:
+                return _cors(web.json_response({"ok": False}))
+            if won:
+                import random as _rnd
+                gold = b["gold"]; xp = b["xp"]
+                add_gold(user_id, gold)
+                try: add_xp(user_id, xp)
+                except Exception: pass
+                mark_boss_defeated(user_id, bid)
+                msg = f"🏆 {b['name']} повержен! +{gold}💰 +{xp} XP"
+                drop = None
+                if _rnd.random() < b["ingredient_chance"]:
+                    give_ingredient(user_id, b["ingredient"], 1)
+                    ing = INGREDIENTS.get(b["ingredient"], {})
+                    drop = {"name": ing.get("name",""), "emoji": ing.get("emoji","🧪")}
+                    msg += f" • Выпало: {drop['emoji']} {drop['name']}"
+                return _cors(web.json_response({"ok": True, "msg": msg, "drop": drop}))
+            else:
+                return _cors(web.json_response({"ok": True, "msg": "Поражение. Попробуй снова!"}))
+        else:  # list
+            progress = get_boss_progress(user_id)
+            out = []
+            for bid, b in sorted(BOSSES.items(), key=lambda x: x[1]["order"]):
+                # босс доступен если предыдущий побеждён (или это первый)
+                prev_done = True
+                if b["order"] > 1:
+                    prev = [k for k,v in BOSSES.items() if v["order"] == b["order"]-1]
+                    prev_done = bool(prev and progress.get(prev[0], False))
+                bp = get_boss_for_player(bid, plvl, duel_hp)
+                ing = INGREDIENTS.get(b["ingredient"], {})
+                out.append({
+                    "id": bid, "name": b["name"], "emoji": b["emoji"], "order": b["order"],
+                    "grid": b["grid"], "hp": bp["hp"], "dmg": bp["dmg"],
+                    "mechDesc": b["mech_desc"], "gold": b["gold"], "xp": b["xp"],
+                    "defeated": progress.get(bid, False), "locked": not prev_done,
+                    "ingredient": {"name": ing.get("name",""), "emoji": ing.get("emoji","🧪")},
+                })
+            return _cors(web.json_response({"bosses": out}))
+    except Exception as e:
+        logger.warning("duelboss %s: %s", action, e)
+        return _cors(web.json_response({"bosses": [], "ok": False}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3269,6 +3349,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/setmodel", handle_options)
     app.router.add_post("/api/duelpotion", handle_duelpotion)
     app.router.add_options("/api/duelpotion", handle_options)
+    app.router.add_post("/api/duelboss", handle_duelboss)
+    app.router.add_options("/api/duelboss", handle_options)
     return app
 
 
