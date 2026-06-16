@@ -3329,6 +3329,27 @@ async def handle_chat(request):
         return _cors(web.json_response({"messages": [], "ok": False}))
 
 
+async def handle_castleevent(request):
+    """Статус ивента в замке: action = status."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    try:
+        from game.castle_event import get_active_event
+        ev = get_active_event()
+        if ev:
+            return _cors(web.json_response({"active": True, "prizeName": ev["prizeName"],
+                                            "prizeEmoji": ev["prizeEmoji"], "timeLeft": ev["timeLeft"]}))
+        return _cors(web.json_response({"active": False}))
+    except Exception as e:
+        logger.warning("castleevent: %s", e)
+        return _cors(web.json_response({"active": False}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3433,6 +3454,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/castle", handle_options)
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_options("/api/chat", handle_options)
+    app.router.add_post("/api/castleevent", handle_castleevent)
+    app.router.add_options("/api/castleevent", handle_options)
     return app
 
 
