@@ -2657,9 +2657,36 @@ async def handle_arena_reward(request):
                 add_item_to_inventory(user_id, "ability_upgrade_potion", 1)
                 bonus = " + ⚗️ Зелье улучшения!"
             add_gold(user_id, gold); add_xp(user_id, xp)
-            return _cors(web.json_response({"ok": True, "won": True,
-                "gold": gold, "xp": xp, "bonus": bonus,
-                "msg": f"🏆 Победа! +{gold} 💰, +{xp} XP{bonus}"}))
+            # открытие новых карт за победы (для карточного режима)
+            unlocked_card = None
+            try:
+                from database import get_conn, execute, fetchrow
+                with get_conn() as conn:
+                    execute(conn, """CREATE TABLE IF NOT EXISTS card_collection (
+                        user_id BIGINT PRIMARY KEY, cards TEXT DEFAULT '', wins INT DEFAULT 0)""")
+                    row = fetchrow(conn, "SELECT cards, wins FROM card_collection WHERE user_id=%s", user_id)
+                    if row:
+                        unlocked = [c for c in (row["cards"] or "").split(",") if c]
+                        wins = (row["wins"] or 0) + 1
+                    else:
+                        unlocked = ["lightning","ice_chains","shield","heal","fireball","pixie","fire_imp","shadow_wolf","stone_guard"]
+                        wins = 1
+                    # проверяем, не открылась ли новая карта
+                    for card_id, need in CARD_UNLOCK_ORDER:
+                        if wins >= need and card_id not in unlocked:
+                            unlocked.append(card_id)
+                            unlocked_card = card_id
+                            break
+                    execute(conn, """INSERT INTO card_collection (user_id, cards, wins) VALUES (%s,%s,%s)
+                                     ON CONFLICT (user_id) DO UPDATE SET cards=%s, wins=%s""",
+                            user_id, ",".join(unlocked), wins, ",".join(unlocked), wins)
+            except Exception as e:
+                logger.warning("card unlock: %s", e)
+            resp = {"ok": True, "won": True, "gold": gold, "xp": xp, "bonus": bonus,
+                    "msg": f"🏆 Победа! +{gold} 💰, +{xp} XP{bonus}"}
+            if unlocked_card:
+                resp["unlockedCard"] = unlocked_card
+            return _cors(web.json_response(resp))
         else:
             # утешительная мелочь за участие
             gold = int(10 * diff_mult)
@@ -2709,6 +2736,55 @@ async def handle_carddeck(request):
     except Exception as e:
         logger.warning("carddeck %s: %s", action, e)
         return _cors(web.json_response({"cards": [], "ok": False, "msg": "Ошибка"}))
+
+
+async def handle_cardcollection(request):
+    """Коллекция карт игрока: action = get. Какие карты открыты."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    from database import get_conn, execute, fetchrow
+    # Базовые карты — доступны всем сразу
+    BASE_CARDS = ["lightning","ice_chains","shield","heal","fireball",
+                  "pixie","fire_imp","shadow_wolf","stone_guard"]
+    try:
+        with get_conn() as conn:
+            execute(conn, """CREATE TABLE IF NOT EXISTS card_collection (
+                user_id BIGINT PRIMARY KEY, cards TEXT DEFAULT '', wins INT DEFAULT 0)""")
+            row = fetchrow(conn, "SELECT cards, wins FROM card_collection WHERE user_id=%s", user_id)
+            if not row:
+                base_str = ",".join(BASE_CARDS)
+                execute(conn, "INSERT INTO card_collection (user_id, cards, wins) VALUES (%s,%s,0)", user_id, base_str)
+                unlocked = BASE_CARDS[:]
+                wins = 0
+            else:
+                unlocked = [c for c in (row["cards"] or "").split(",") if c]
+                wins = row["wins"] or 0
+                # гарантируем базовые
+                changed = False
+                for b in BASE_CARDS:
+                    if b not in unlocked:
+                        unlocked.append(b); changed = True
+                if changed:
+                    execute(conn, "UPDATE card_collection SET cards=%s WHERE user_id=%s", ",".join(unlocked), user_id)
+        return _cors(web.json_response({"unlocked": unlocked, "wins": wins}))
+    except Exception as e:
+        logger.warning("cardcollection: %s", e)
+        return _cors(web.json_response({"unlocked": BASE_CARDS, "wins": 0}))
+
+
+# Порядок открытия карт по победам (карта: сколько побед нужно)
+CARD_UNLOCK_ORDER = [
+    ("troll", 1), ("healer", 2), ("ice_golem", 3), ("dark_magic", 4),
+    ("poison_cloud", 5), ("shadow_wolf", 6), ("sun_ray", 7), ("vampire", 9),
+    ("phoenix", 11), ("blizzard", 13), ("dragon", 15), ("meteor", 18),
+    ("dementor", 22), ("basilisk", 26), ("avada", 30),
+]
 
 
 def _build_app() -> web.Application:
@@ -2797,6 +2873,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/arena_reward", handle_options)
     app.router.add_post("/api/carddeck", handle_carddeck)
     app.router.add_options("/api/carddeck", handle_options)
+    app.router.add_post("/api/cardcollection", handle_cardcollection)
+    app.router.add_options("/api/cardcollection", handle_options)
     return app
 
 
