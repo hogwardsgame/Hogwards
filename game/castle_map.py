@@ -99,11 +99,25 @@ def new_run(user_id: int):
     ensure_castle_table()
     from database import get_conn, execute
     grid, sr, sc, loot_cells = _gen_maze(SIZE)
+    # если активен ивент — прячем особый приз на случайной свободной клетке
+    event_cell = None
+    try:
+        from game.castle_event import is_event_active
+        if is_event_active():
+            free = [(r,c) for r in range(1,SIZE-1) for c in range(1,SIZE-1)
+                    if grid[r][c] == EMPTY and not (r==sr and c==sc)]
+            if free:
+                er, ec = random.choice(free)
+                grid[er][ec] = 6  # 6 = EVENT_PRIZE
+                event_cell = f"{er},{ec}"
+    except Exception:
+        pass
     state = {
         "grid": grid, "pr": sr, "pc": sc, "size": SIZE,
         "loot": loot_cells, "collected": [], "trapsSprung": [],
         "hp": 100, "gold_found": 0, "items_found": [],
         "revealed": _around(sr, sc, SIZE), "done": False, "moves": 0,
+        "eventCell": event_cell,
     }
     with get_conn() as conn:
         execute(conn, """INSERT INTO castle_runs (user_id, state, started_at) VALUES (%s,%s,%s)
@@ -208,6 +222,25 @@ def move(user_id: int, direction: str):
             _give_gold(user_id, bonus)
             state["gold_found"] += bonus
             event = {"event": "exit", "bonus": bonus}
+        # ивент-приз (6)
+        elif cell == 6 and key == state.get("eventCell"):
+            try:
+                from game.castle_event import claim_prize
+                from database import fetchrow as _fr
+                from database import get_conn as _gc
+                with _gc() as c2:
+                    urow = _fr(c2, "SELECT wizard_name FROM users WHERE user_id=%s", user_id)
+                uname = (urow["wizard_name"] if urow else None) or "Игрок"
+                res = claim_prize(user_id, uname)
+                if res.get("won"):
+                    state["grid"][nr][nc] = EMPTY
+                    state["collected"].append(key)
+                    event = {"event": "eventWin", "prize": {"name": res["prizeName"], "emoji": res["prizeEmoji"], "qty": res["prizeQty"]}}
+                else:
+                    state["grid"][nr][nc] = EMPTY
+                    event = {"event": "eventTaken"}
+            except Exception:
+                event = {"event": "move"}
         execute(conn, "UPDATE castle_runs SET state=%s WHERE user_id=%s", json.dumps(state), user_id)
     out = _client_state(state)
     out.update(event)

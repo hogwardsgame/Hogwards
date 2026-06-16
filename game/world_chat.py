@@ -197,6 +197,24 @@ def handle_admin_command(admin_id, text):
             msg = text[len("/say"):].strip()
             system_message("📢 " + msg)
             return {"ok": True, "msg": "Объявление отправлено", "silent": True}
+        elif cmd == "/event" and len(parts) >= 2:
+            # /event <item_id> [кол-во] — спрятать приз в замке и запустить ивент
+            item_id = parts[1]
+            qty = int(parts[2]) if len(parts) >= 3 else 1
+            try:
+                from game.items import ITEMS
+                item = ITEMS.get(item_id)
+                if item:
+                    nm = item.get("name", {})
+                    pname = nm.get("ru", item_id) if isinstance(nm, dict) else str(nm or item_id)
+                    pemoji = item.get("emoji", "🎁")
+                else:
+                    pname = item_id; pemoji = "🎁"
+            except Exception:
+                pname = item_id; pemoji = "🎁"
+            from game.castle_event import start_event
+            start_event(item_id, qty, pname, pemoji)
+            return {"ok": True, "msg": f"🎪 Ивент запущен! Приз: {pemoji} {pname} x{qty}", "silent": True}
         elif cmd == "/clear":
             from database import get_conn, execute
             with get_conn() as conn:
