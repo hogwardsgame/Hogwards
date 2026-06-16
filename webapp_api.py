@@ -3251,6 +3251,38 @@ async def handle_duelboss(request):
         return _cors(web.json_response({"bosses": [], "ok": False}))
 
 
+async def handle_castle(request):
+    """Карта-замок: action = enter | move | state."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "state")
+    try:
+        from game import castle_map as CM
+    except Exception as e:
+        logger.warning("castle import: %s", e)
+        return _cors(web.json_response({"error": "unavailable"}))
+    try:
+        if action == "enter":
+            return _cors(web.json_response(CM.new_run(user_id)))
+        elif action == "move":
+            direction = body.get("dir", "")
+            return _cors(web.json_response(CM.move(user_id, direction)))
+        else:
+            st = CM.get_run(user_id)
+            if not st:
+                return _cors(web.json_response({"noRun": True}))
+            return _cors(web.json_response(st))
+    except Exception as e:
+        logger.warning("castle %s: %s", action, e)
+        return _cors(web.json_response({"error": "fail"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3351,6 +3383,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/duelpotion", handle_options)
     app.router.add_post("/api/duelboss", handle_duelboss)
     app.router.add_options("/api/duelboss", handle_options)
+    app.router.add_post("/api/castle", handle_castle)
+    app.router.add_options("/api/castle", handle_options)
     return app
 
 
