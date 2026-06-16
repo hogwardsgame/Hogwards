@@ -32,7 +32,6 @@ SHOPS = {
         "name": "🎭 Шутки Зонко",
         "desc": "Магические шутки и розыгрыши. Иногда полезны в бою.",
         "items": [
-            {"id": "mana_potion",   "price": 55, "stock": 5},
             {"id": "shield_potion", "price": 90, "stock": 3},
             {"id": "luck_potion",   "price": 280, "stock": 1},
         ],

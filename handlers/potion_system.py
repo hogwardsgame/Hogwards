@@ -46,15 +46,6 @@ RECIPES: dict[str, dict] = {
         "desc":        "Восстанавливает 150 HP.",
         "unlock":      "level_10",
     },
-    "mana_brew": {
-        "name":        "Зелье маны",
-        "emoji":       "💧",
-        "rarity":      "common",
-        "ingredients": {"flobberworm_mucus": 2, "gillyweed": 1},
-        "result_item": "mana_potion",
-        "desc":        "Восстанавливает 60 маны.",
-        "unlock":      "start",
-    },
     "strength_brew": {
         "name":        "Зелье силы",
         "emoji":       "⚡",

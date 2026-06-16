@@ -20,7 +20,7 @@ LOGIN_REWARDS = {
     2:  {"gold": 100,  "xp": 30,   "item": None,              "label": "100 💰"},
     3:  {"gold": 150,  "xp": 50,   "item": "hp_potion_small", "label": "150 💰 + зелье HP"},
     4:  {"gold": 200,  "xp": 60,   "item": None,              "label": "200 💰"},
-    5:  {"gold": 250,  "xp": 80,   "item": "mana_potion",     "label": "250 💰 + зелье маны"},
+    5:  {"gold": 250,  "xp": 80,   "item": "hp_potion_medium", "label": "250 💰 + зелье HP"},
     6:  {"gold": 300,  "xp": 100,  "item": None,              "label": "300 💰"},
     7:  {"gold": 500,  "xp": 200,  "item": "hp_potion_large", "label": "500 💰 + 200 XP + зелье HP (большое)"},
     14: {"gold": 1000, "xp": 500,  "item": "strength_potion", "label": "1000 💰 + 500 XP + зелье силы"},
