@@ -35,28 +35,48 @@ LOOT_TABLE = [
 
 
 def _gen_maze(size, n_loot=5, n_trap=4):
-    """Генерирует лабиринт: стены по краям + случайные внутри, лут и ловушки."""
-    grid = [[EMPTY for _ in range(size)] for _ in range(size)]
-    # рамка-стены
-    for i in range(size):
-        grid[0][i] = WALL; grid[size-1][i] = WALL
-        grid[i][0] = WALL; grid[i][size-1] = WALL
-    # случайные внутренние стены (~22%)
-    for r in range(2, size-1):
-        for c in range(1, size-1):
-            if random.random() < 0.22:
-                grid[r][c] = WALL
-    # старт — низ-центр (всегда свободен)
+    """Генерирует проходимый лабиринт: коридоры, комнаты, лут, ловушки."""
+    # начинаем со всех стен
+    grid = [[WALL for _ in range(size)] for _ in range(size)]
+    # старт — низ-центр
     sr, sc = size-2, size//2
+    # прорубаем лабиринт случайным блужданием (recursive backtracker, упрощённо)
+    visited = set()
+    stack = [(sr, sc)]
+    grid[sr][sc] = EMPTY
+    visited.add((sr, sc))
+    while stack:
+        r, c = stack[-1]
+        # соседи через клетку (для коридоров)
+        neighbors = []
+        for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+            nr, nc = r + dr*1, c + dc*1
+            if 1 <= nr < size-1 and 1 <= nc < size-1 and (nr, nc) not in visited:
+                neighbors.append((nr, nc))
+        if neighbors:
+            nr, nc = random.choice(neighbors)
+            grid[nr][nc] = EMPTY
+            visited.add((nr, nc))
+            stack.append((nr, nc))
+        else:
+            stack.pop()
+    # немного расширяем проходы (убираем часть стен для открытости)
+    for r in range(1, size-1):
+        for c in range(1, size-1):
+            if grid[r][c] == WALL and random.random() < 0.12:
+                grid[r][c] = EMPTY
+    # старт и выход
     grid[sr][sc] = START
-    # гарантируем проходы вокруг старта
-    grid[sr-1][sc] = EMPTY if grid[sr-1][sc] == WALL else grid[sr-1][sc]
-    # выход — верх-центр
-    grid[1][size//2] = EXIT
-    grid[1][size//2-1] = EMPTY
-    # размещаем лут на свободных клетках
-    free = [(r,c) for r in range(1,size-1) for c in range(1,size-1)
-            if grid[r][c] == EMPTY and not (r==sr and c==sc)]
+    # выход — самая дальняя пройденная клетка сверху
+    exit_candidates = [(r,c) for (r,c) in visited if r <= 2]
+    if exit_candidates:
+        er, ec = random.choice(exit_candidates)
+    else:
+        er, ec = 1, size//2
+        grid[er][ec] = EMPTY
+    grid[er][ec] = EXIT
+    # лут и ловушки на свободных клетках
+    free = [(r,c) for (r,c) in visited if grid[r][c] == EMPTY and (r,c) != (sr,sc) and (r,c) != (er,ec)]
     random.shuffle(free)
     loot_cells = {}
     idx = 0
@@ -138,22 +158,18 @@ def _around(r, c, size):
 
 
 def _client_state(state):
-    """Состояние для клиента (с туманом войны — только раскрытые клетки)."""
+    """Состояние для клиента. Карта видна целиком (без тумана) для наглядности."""
     size = state["size"]
-    revealed = set(state["revealed"])
     vis = []
     for r in range(size):
         row = []
         for c in range(size):
             key = f"{r},{c}"
-            if key in revealed:
-                cell = state["grid"][r][c]
-                # собранный лут показываем как пустой
-                if key in state["collected"]:
-                    cell = EMPTY
-                row.append(cell)
-            else:
-                row.append(-1)  # туман
+            cell = state["grid"][r][c]
+            # собранный лут показываем как пустой
+            if key in state["collected"]:
+                cell = EMPTY
+            row.append(cell)
         vis.append(row)
     return {
         "grid": vis, "pr": state["pr"], "pc": state["pc"], "size": size,
