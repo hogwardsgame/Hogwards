@@ -2949,6 +2949,53 @@ async def handle_duelrank(request):
         return _cors(web.json_response({"rating": 0, "ok": False}))
 
 
+async def handle_pvpduel(request):
+    """Живой PvP дуэли (новый): action = find | cancel | invite | join | move | state."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "state")
+    from database import get_user
+    try:
+        from game import live_duel as LD
+    except Exception as e:
+        logger.warning("liveduel import: %s", e)
+        return _cors(web.json_response({"error": "unavailable"}))
+    try:
+        user = get_user(user_id)
+        wname = (user.get("wizard_name") if user else None) or "Игрок"
+        if action == "find":
+            return _cors(web.json_response(LD.find_or_queue(user_id, wname)))
+        elif action == "cancel":
+            return _cors(web.json_response(LD.cancel_queue(user_id)))
+        elif action == "invite":
+            return _cors(web.json_response(LD.create_invite(user_id, wname)))
+        elif action == "join":
+            host_id = body.get("hostId", "")
+            try:
+                host_id = int(host_id)
+            except Exception:
+                return _cors(web.json_response({"status": "notfound"}))
+            return _cors(web.json_response(LD.join_invite(user_id, wname, host_id)))
+        elif action == "move":
+            match_id = body.get("matchId", "")
+            move = body.get("move", "stay")
+            spell = body.get("spell", "")
+            aim = body.get("aim", None)
+            return _cors(web.json_response(LD.submit_move(match_id, user_id, move, spell, aim)))
+        else:  # state
+            match_id = body.get("matchId", "")
+            return _cors(web.json_response(LD.get_match_state(match_id, user_id)))
+    except Exception as e:
+        logger.warning("liveduel %s: %s", action, e)
+        return _cors(web.json_response({"error": "fail", "msg": str(e)}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3041,6 +3088,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/cloaks", handle_options)
     app.router.add_post("/api/duelrank", handle_duelrank)
     app.router.add_options("/api/duelrank", handle_options)
+    app.router.add_post("/api/pvpduel", handle_pvpduel)
+    app.router.add_options("/api/pvpduel", handle_options)
     return app
 
 
