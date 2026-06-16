@@ -12,7 +12,7 @@ import time
 import random
 
 GRID = 5
-TURN_TIMEOUT = 35  # секунд на ход
+TURN_TIMEOUT = 30  # секунд на ход — потом автопоражение
 
 # Заклинания (синхронизировано с фронтом)
 DUEL_SPELLS = {
@@ -263,20 +263,24 @@ def get_match_state(match_id, user_id):
         if not duel:
             return {"error": "notfound"}
         state = json.loads(duel["state"])
-        # авто-таймаут хода: если игрок не сходил за TURN_TIMEOUT — случайный ход за него
-        if not state["over"] and (time.time() - state.get("turnStarted", 0)) > TURN_TIMEOUT:
-            changed = False
-            for side in ("p1", "p2"):
-                if not state[side]["ready"] and state[side]["id"]:
-                    state[side]["move"] = random.choice(["up","down","left","right","stay"])
-                    state[side]["spell"] = random.choice(list(DUEL_SPELLS.keys()))
-                    opp = state["p2"] if side == "p1" else state["p1"]
-                    state[side]["aim"] = {"r": opp["r"], "c": opp["c"]}
-                    state[side]["ready"] = True
-                    changed = True
-            if changed and state["p1"]["ready"] and state["p2"]["ready"]:
-                state = _resolve_turn(state)
-                execute(conn, "UPDATE live_duels SET state=%s WHERE match_id=%s", json.dumps(state), match_id)
+        # авто-поражение: если игрок не сходил за TURN_TIMEOUT — ему засчитывается поражение
+        if not state["over"] and state["p2"]["id"] and (time.time() - state.get("turnStarted", 0)) > TURN_TIMEOUT:
+            p1_ready = state["p1"]["ready"]
+            p2_ready = state["p2"]["ready"]
+            # тот, кто НЕ готов — проигрывает (если оба не готовы — ничья)
+            if not p1_ready and not p2_ready:
+                state["over"] = True
+                state["winner"] = 0
+                state["log"] = "Оба игрока неактивны — ничья"
+            elif not p1_ready:
+                state["over"] = True
+                state["winner"] = state["p2"]["id"]
+                state["log"] = "Соперник неактивен — победа!"
+            elif not p2_ready:
+                state["over"] = True
+                state["winner"] = state["p1"]["id"]
+                state["log"] = "Соперник неактивен — победа!"
+            execute(conn, "UPDATE live_duels SET state=%s WHERE match_id=%s", json.dumps(state), match_id)
     side = "p1" if duel["p1_id"] == user_id else "p2"
     return {"ok": True, "state": state, "side": side,
             "bothJoined": bool(state["p2"]["id"] and state["p2"]["id"] != 0)}
