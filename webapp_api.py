@@ -2803,6 +2803,11 @@ async def handle_arena_reward(request):
                 resp["streak"] = rr["streak"]
             except Exception as e:
                 logger.warning("duel rating win: %s", e)
+            try:
+                from game.battle_pass import add_points as _bpw
+                _bpw(user_id, "duel_win")
+            except Exception:
+                pass
             return _cors(web.json_response(resp))
         else:
             # утешительная мелочь за участие
@@ -3253,6 +3258,11 @@ async def handle_duelboss(request):
                 try: add_xp(user_id, xp)
                 except Exception: pass
                 mark_boss_defeated(user_id, bid)
+                try:
+                    from game.battle_pass import add_points as _bp
+                    _bp(user_id, "boss_win")
+                except Exception:
+                    pass
                 msg = f"🏆 {b['name']} повержен! +{gold}💰 +{xp} XP"
                 drop = None
                 if _rnd.random() < b["ingredient_chance"]:
@@ -3620,6 +3630,33 @@ async def handle_dungeon(request):
         return _cors(web.json_response({"error": "fail"}))
 
 
+async def handle_battlepass(request):
+    """Батл пасс: action = get | claim."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "get")
+    try:
+        from game import battle_pass as BP
+    except Exception as e:
+        logger.warning("battlepass import: %s", e)
+        return _cors(web.json_response({"error": "unavailable"}))
+    try:
+        if action == "claim":
+            level = int(body.get("level", 0))
+            return _cors(web.json_response(BP.claim_reward(user_id, level)))
+        else:
+            return _cors(web.json_response(BP.get_pass(user_id)))
+    except Exception as e:
+        logger.warning("battlepass %s: %s", action, e)
+        return _cors(web.json_response({"error": "fail"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3718,6 +3755,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/tower", handle_options)
     app.router.add_post("/api/dungeon", handle_dungeon)
     app.router.add_options("/api/dungeon", handle_options)
+    app.router.add_post("/api/battlepass", handle_battlepass)
+    app.router.add_options("/api/battlepass", handle_options)
     app.router.add_post("/api/duelrank", handle_duelrank)
     app.router.add_options("/api/duelrank", handle_options)
     app.router.add_post("/api/pvpduel", handle_pvpduel)
