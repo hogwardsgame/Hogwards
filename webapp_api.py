@@ -745,45 +745,48 @@ async def handle_shop(request):
 
     def _shop_payload(msg=None, ok=True):
         try:
-            rows = _ensure_daily_shop()
+            from game.personal_shop import get_personal_shop
+            shop = get_personal_shop(user_id)
         except Exception:
-            rows = []
+            shop = []
         user = get_user(user_id)
+        gold = user["gold"] if user else 0
         out = []
-        for r in rows:
-            item = ITEMS.get(r["item_id"], {})
+        for entry in shop:
+            item = ITEMS.get(entry["id"], {})
             if not item:
                 continue
             out.append({
-                "rowId": r["id"],
+                "rowId": entry["id"],  # теперь id предмета, не номер строки
+                "itemId": entry["id"],
                 "name": item_display_name(item, "ru"),
                 "emoji": item.get("emoji", "📦"),
                 "rarity": rarity_emoji.get(item.get("rarity", "common"), "⚪"),
-                "price": r["price_gold"],
-                "stock": r["stock"],
-                "afford": user["gold"] >= r["price_gold"],
+                "price": entry["price"],
+                "stock": -1 if entry.get("always") else 1,
+                "afford": gold >= entry["price"],
             })
-        return {"items": out, "gold": user["gold"], "ok": ok, "msg": msg}
+        return {"items": out, "gold": gold, "ok": ok, "msg": msg, "personal": True}
 
     try:
         if action == "buy":
-            row_id = int(body.get("rowId", 0))
-            with get_conn() as conn:
-                row = fetchrow(conn, "SELECT * FROM shop_items WHERE id=%s AND available_until::date >= CURRENT_DATE", row_id)
-            if not row:
-                return _cors(web.json_response(_shop_payload("Товар недоступен", ok=False)))
-            item = ITEMS.get(row["item_id"])
+            item_id = body.get("rowId", "") or body.get("itemId", "")
+            try:
+                from game.personal_shop import get_personal_shop
+                shop = get_personal_shop(user_id)
+            except Exception:
+                shop = []
+            entry = next((e for e in shop if e["id"] == item_id), None)
+            if not entry:
+                return _cors(web.json_response(_shop_payload("Товар недоступен сегодня", ok=False)))
+            item = ITEMS.get(item_id)
             user = get_user(user_id)
-            if row["stock"] == 0:
-                return _cors(web.json_response(_shop_payload("Распродано", ok=False)))
-            if user["gold"] < row["price_gold"]:
+            if not user or user["gold"] < entry["price"]:
                 return _cors(web.json_response(_shop_payload("Не хватает золота", ok=False)))
             with get_conn() as conn:
-                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", row["price_gold"], user_id)
-                if row["stock"] > 0:
-                    execute(conn, "UPDATE shop_items SET stock=stock-1 WHERE id=%s", row_id)
-            add_item_to_inventory(user_id, row["item_id"], 1)
-            nm = item_display_name(item, "ru") if item else row["item_id"]
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", entry["price"], user_id)
+            add_item_to_inventory(user_id, item_id, 1)
+            nm = item_display_name(item, "ru") if item else item_id
             return _cors(web.json_response(_shop_payload(f"✅ Куплено: {nm}", ok=True)))
         else:
             return _cors(web.json_response(_shop_payload()))
