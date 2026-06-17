@@ -2494,6 +2494,7 @@ async def handle_auction(request):
                 execute(conn, "UPDATE auction_lots SET current_price=%s, buyer_id=%s WHERE id=%s", amount, user_id, lot_id)
             return _cors(web.json_response({"ok": True, "msg": f"✅ Ставка {amount} 💰 принята! Ты лидер."}))
         elif action == "mysellable":
+            rarity_emoji_map = {"common":"⚪","uncommon":"🟢","rare":"🔵","very_rare":"🟣","epic":"🟠","legendary":"🟡","mythical":"⭐","abyssal":"🌟"}
             with get_conn() as conn:
                 inv = fetchall(conn, "SELECT * FROM inventory WHERE user_id=%s", user_id)
             items = []
@@ -2503,7 +2504,7 @@ async def handle_auction(request):
                     items.append({"invId": row["id"], "itemId": row["item_id"],
                                   "name": item_display_name(idata, "ru"),
                                   "emoji": idata.get("emoji", "📦"),
-                                  "rarity": house_rarity.get(idata.get("rarity","common"), "")})
+                                  "rarity": rarity_emoji_map.get(idata.get("rarity","common"), "")})
             return _cors(web.json_response({"items": items}))
         elif action == "sell":
             inv_id = int(body.get("invId", 0))
