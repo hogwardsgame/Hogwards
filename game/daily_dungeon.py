@@ -150,11 +150,21 @@ def wave_won(user_id, remaining_hp):
                 drop = {"name": info.get("name", ""), "emoji": info.get("emoji", "🧪")}
         except Exception:
             pass
+        try:
+            from game.battle_pass import add_points
+            add_points(user_id, "dungeon_clear")
+        except Exception:
+            pass
         return {"ok": True, "done": True, "gold": gold, "xp": 150, "drop": drop}
     return {"ok": True, "done": False, "nextWave": next_wave}
 
 
 def run_failed(user_id):
+    ensure_dungeon_table()
+    from database import get_conn, execute
+    with get_conn() as conn:
+        execute(conn, "UPDATE daily_dungeon SET run_active=FALSE WHERE user_id=%s", user_id)
+    return {"ok": True}
     ensure_dungeon_table()
     from database import get_conn, execute
     with get_conn() as conn:

@@ -109,6 +109,11 @@ def floor_won(user_id, remaining_hp):
         add_xp(user_id, enemy["xp"])
     except Exception:
         pass
+    try:
+        from game.battle_pass import add_points
+        add_points(user_id, "tower_floor")
+    except Exception:
+        pass
     return {"ok": True, "cleared": cleared, "nextFloor": new_floor,
             "gold": enemy["gold"], "xp": enemy["xp"], "best": best}
 
