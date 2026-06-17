@@ -34,7 +34,7 @@ CLOAKS = {
     "swift": {
         "name": "Плащ скорости", "emoji": "🟪", "color": "#a05ce0", "rarity": "rare",
         "price": 1200, "atk": 4, "def": 0, "hp": 0, "mana": 20, "duel": {"move_bonus": 1},
-        "desc": "+4 атаки. В дуэли: можно шагать на 2 клетки!",
+        "desc": "+4 атаки. В дуэли: шанс уклониться от удара (20%)!",
     },
     "dark": {
         "name": "Плащ тьмы", "emoji": "⬛", "color": "#5a4a7a", "rarity": "epic",
@@ -48,8 +48,8 @@ CLOAKS = {
     },
     "legend": {
         "name": "Плащ легенды", "emoji": "🟨", "color": "#ffd86b", "rarity": "legendary",
-        "price": 6000, "atk": 15, "def": 12, "hp": 40, "mana": 40, "duel": {"dmg_bonus": 0.15, "shield_bonus": 5, "move_bonus": 1},
-        "desc": "Лучший плащ: +всё. В дуэли: урон, щит и дальний шаг.",
+        "price": 6000, "atk": 15, "def": 12, "hp": 40, "mana": 40, "duel": {"dmg_bonus": 0.15, "shield_bonus": 5, "dodge_bonus": 0.15},
+        "desc": "Лучший плащ: +всё. В дуэли: урон, щит и уклонение.",
     },
 }
 
