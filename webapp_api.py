@@ -2009,16 +2009,28 @@ async def handle_room(request):
 
         def _info(msg=None, ok=True):
             r = _get_room(user_id)
-            ow = _owned_upgrades(r)
-            gph, xph = _income_rates(ow)
+            from handlers.my_room import _upgrade_levels, _level_cost, MAX_UPGRADE_LEVEL
+            levels = _upgrade_levels(r)
+            gph, xph = _income_rates(levels)
             pg, px, hours = _pending_income(r)
             u = get_user(user_id)
             ups = []
             for uid, up in UPGRADES.items():
+                lvl = levels.get(uid, 0)
+                maxed = lvl >= MAX_UPGRADE_LEVEL
+                # стоимость следующего уровня
+                if lvl == 0:
+                    cost = up["price"]
+                elif not maxed:
+                    cost = _level_cost(up["price"], lvl)
+                else:
+                    cost = 0
                 ups.append({
-                    "id": uid, "name": up["name"], "desc": up["desc"], "price": up["price"],
-                    "goldPerHour": up["gold_per_hour"], "xpPerHour": up["xp_per_hour"],
-                    "owned": uid in ow,
+                    "id": uid, "name": up["name"], "desc": up["desc"],
+                    "price": cost, "level": lvl, "maxLevel": MAX_UPGRADE_LEVEL, "maxed": maxed,
+                    "goldPerHour": up["gold_per_hour"] * max(1, lvl), "xpPerHour": up["xp_per_hour"] * max(1, lvl),
+                    "goldPerHourNext": up["gold_per_hour"] * (lvl + 1), "xpPerHourNext": up["xp_per_hour"] * (lvl + 1),
+                    "owned": lvl > 0,
                 })
             return {"goldPerHour": gph, "xpPerHour": xph,
                     "pendingGold": pg, "pendingXp": px,
@@ -2039,16 +2051,20 @@ async def handle_room(request):
             up = UPGRADES.get(uid)
             if not up:
                 return _cors(web.json_response(_info("Улучшение не найдено", ok=False)))
-            if uid in owned:
-                return _cors(web.json_response(_info("Уже куплено", ok=False)))
-            if user["gold"] < up["price"]:
-                return _cors(web.json_response(_info(f"Не хватает золота (нужно {up['price']} 💰)", ok=False)))
-            new_upgrades = (room.get("upgrades") or "")
-            new_upgrades = (new_upgrades + "," + uid) if new_upgrades else uid
+            from handlers.my_room import _upgrade_levels, _level_cost, _save_levels, MAX_UPGRADE_LEVEL
+            levels = _upgrade_levels(room)
+            cur = levels.get(uid, 0)
+            if cur >= MAX_UPGRADE_LEVEL:
+                return _cors(web.json_response(_info("Максимальный уровень!", ok=False)))
+            cost = up["price"] if cur == 0 else _level_cost(up["price"], cur)
+            if (user["gold"] if user else 0) < cost:
+                return _cors(web.json_response(_info(f"Не хватает золота (нужно {cost} 💰)", ok=False)))
+            levels[uid] = cur + 1
             with get_conn() as conn:
-                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", up["price"], user_id)
-                execute(conn, "UPDATE player_room SET upgrades=%s WHERE user_id=%s", new_upgrades, user_id)
-            return _cors(web.json_response(_info(f"✅ Куплено: {up['name']}", ok=True)))
+                execute(conn, "UPDATE users SET gold=gold-%s WHERE user_id=%s", cost, user_id)
+            _save_levels(user_id, levels)
+            verb = "Куплено" if cur == 0 else f"Улучшено до ур.{cur+1}"
+            return _cors(web.json_response(_info(f"✅ {verb}: {up['name']}", ok=True)))
         else:
             return _cors(web.json_response(_info()))
     except Exception as e:
