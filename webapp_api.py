@@ -2468,7 +2468,7 @@ async def handle_auction(request):
     except Exception as e:
         logger.warning("auc import: %s", e)
         return _cors(web.json_response({"lots": []}))
-    house_rarity = {"common":"⬜","uncommon":"🟩","rare":"🟦","very_rare":"🟪","epic":"🟧","legendary":"🟨"}
+    house_rarity = {"common":"⚪","uncommon":"🟢","rare":"🔵","very_rare":"🟣","epic":"🟠","legendary":"🟡","mythical":"⭐","abyssal":"🌟"}
     try:
         if action == "bid":
             lot_id = int(body.get("lotId", 0))
