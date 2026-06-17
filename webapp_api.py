@@ -3472,6 +3472,11 @@ async def handle_buffpotions(request):
         if action == "brew":
             pid = body.get("potion", "")
             return _cors(web.json_response(brew(user_id, pid)))
+        elif action == "consume":
+            from game.buff_potions import consume_battle_potion
+            pid = body.get("potion", "")
+            ok = consume_battle_potion(user_id, pid)
+            return _cors(web.json_response({"ok": ok}))
         elif action == "uselong":
             pid = body.get("potion", "")
             return _cors(web.json_response(use_long_buff(user_id, pid)))
