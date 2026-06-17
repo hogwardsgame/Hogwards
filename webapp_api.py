@@ -143,6 +143,21 @@ async def handle_profile(request):
     # Титул
     data["title"] = user.get("title") or ""
 
+    # Бонусы активной метлы
+    try:
+        from game.brooms import get_broom_bonuses, get_active_broom, BROOMS
+        bb = get_broom_bonuses(user_id)
+        data["atk"] += bb["atk"]
+        data["def"] += bb["def"]
+        data["maxHp"] += bb["hp"]
+        data["luck"] = data.get("luck", 5) + bb["luck"]
+        abid = get_active_broom(user_id)
+        ab = BROOMS.get(abid, {})
+        data["broom"] = {"id": abid, "name": ab.get("name",""), "emoji": ab.get("emoji","🧹"),
+                         "dash": bb["dash"], "dashes": bb["dashes"]}
+    except Exception:
+        data["broom"] = {"id": "training", "name": "Учебная метла", "emoji": "🧹", "dash": 2, "dashes": 2}
+
     # Моделька персонажа (эмодзи для дуэли)
     try:
         from database import get_conn as _gcm, fetchrow as _frm, execute as _exm
@@ -3353,6 +3368,70 @@ async def handle_castleevent(request):
         return _cors(web.json_response({"active": False}))
 
 
+async def handle_brooms(request):
+    """Мётлы: action = list | equip | buy."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    from database import get_user, add_gold
+    try:
+        from game.brooms import (BROOMS, get_owned_brooms, get_active_broom,
+                                  set_active_broom, give_broom)
+    except Exception as e:
+        logger.warning("brooms import: %s", e)
+        return _cors(web.json_response({"brooms": []}))
+    rarity_names = {"common":"Обычная","rare":"Редкая","epic":"Эпическая","legendary":"Легендарная"}
+    try:
+        def _payload(msg=None, ok=True):
+            owned = get_owned_brooms(user_id)
+            active = get_active_broom(user_id)
+            user = get_user(user_id)
+            gold = user.get("gold", 0) if user else 0
+            out = []
+            for bid, b in BROOMS.items():
+                out.append({
+                    "id": bid, "name": b["name"], "emoji": b["emoji"], "color": b["color"],
+                    "rarity": rarity_names.get(b["rarity"], ""), "rarityKey": b["rarity"],
+                    "price": b["price"], "atk": b.get("atk",0), "def": b.get("def",0),
+                    "hp": b.get("hp",0), "luck": b.get("luck",0),
+                    "dash": b.get("dash",2), "dashes": b.get("dashes",2),
+                    "desc": b["desc"], "owned": bid in owned, "active": bid == active,
+                })
+            out.sort(key=lambda x: x["price"])
+            return {"brooms": out, "gold": gold, "active": active, "ok": ok, "msg": msg}
+
+        if action == "equip":
+            bid = body.get("broom", "")
+            if set_active_broom(user_id, bid):
+                return _cors(web.json_response(_payload("✅ Метла выбрана", ok=True)))
+            return _cors(web.json_response(_payload("Метла недоступна", ok=False)))
+        elif action == "buy":
+            bid = body.get("broom", "")
+            b = BROOMS.get(bid)
+            if not b:
+                return _cors(web.json_response(_payload("Метла не найдена", ok=False)))
+            if bid in get_owned_brooms(user_id):
+                return _cors(web.json_response(_payload("Уже куплено", ok=False)))
+            user = get_user(user_id)
+            if (user.get("gold", 0) if user else 0) < b["price"]:
+                return _cors(web.json_response(_payload("Недостаточно золота", ok=False)))
+            add_gold(user_id, -b["price"])
+            give_broom(user_id, bid)
+            set_active_broom(user_id, bid)
+            return _cors(web.json_response(_payload(f"✅ Куплена «{b['name']}»!", ok=True)))
+        else:
+            return _cors(web.json_response(_payload()))
+    except Exception as e:
+        logger.warning("brooms %s: %s", action, e)
+        return _cors(web.json_response({"brooms": [], "ok": False, "msg": "Ошибка"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3443,6 +3522,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/cardcollection", handle_options)
     app.router.add_post("/api/cloaks", handle_cloaks)
     app.router.add_options("/api/cloaks", handle_options)
+    app.router.add_post("/api/brooms", handle_brooms)
+    app.router.add_options("/api/brooms", handle_options)
     app.router.add_post("/api/duelrank", handle_duelrank)
     app.router.add_options("/api/duelrank", handle_options)
     app.router.add_post("/api/pvpduel", handle_pvpduel)

@@ -572,6 +572,12 @@ def create_user(user_id: int, username: str, wizard_name: str, house: str, lang:
         grant_starter_cloak(user_id)
     except Exception:
         pass
+    # Выдаём стартовую метлу
+    try:
+        from game.brooms import grant_starter_broom
+        grant_starter_broom(user_id)
+    except Exception:
+        pass
 
 
 def add_item_to_inventory(user_id: int, item_id: str, quantity: int = 1):
