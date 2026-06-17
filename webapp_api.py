@@ -3014,6 +3014,16 @@ async def handle_duelrank(request):
     except Exception as e:
         logger.warning("duelrank import: %s", e)
         return _cors(web.json_response({"rating": 0}))
+    # проверка смены сезона (soft reset + награды)
+    season_info = {"season": "", "daysLeft": 0}
+    pending_reward = None
+    try:
+        from game.rating_season import check_and_rollover, get_season_info, get_pending_reward
+        check_and_rollover()
+        season_info = get_season_info()
+        pending_reward = get_pending_reward(user_id)
+    except Exception as e:
+        logger.warning("season: %s", e)
     try:
         if action == "top":
             try:
@@ -3022,10 +3032,9 @@ async def handle_duelrank(request):
             except Exception:
                 excl = [0]
             top = get_duel_leaderboard(20, excl)
-            # моя позиция
             me = get_duel_rating(user_id)
             mylg = get_league(me["rating"])
-            return _cors(web.json_response({"top": top, "me": {
+            return _cors(web.json_response({"top": top, "season": season_info, "me": {
                 "rating": me["rating"], "wins": me["wins"], "losses": me["losses"],
                 "league": mylg["name"], "leagueEmoji": mylg["emoji"]}}))
         else:
@@ -3036,7 +3045,7 @@ async def handle_duelrank(request):
             return _cors(web.json_response({
                 "rating": me["rating"], "wins": me["wins"], "losses": me["losses"],
                 "winrate": wr, "streak": me["streak"], "bestStreak": me["best_streak"],
-                "league": lg,
+                "league": lg, "season": season_info, "seasonReward": pending_reward,
             }))
     except Exception as e:
         logger.warning("duelrank %s: %s", action, e)
