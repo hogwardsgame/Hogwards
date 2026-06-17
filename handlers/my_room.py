@@ -85,16 +85,56 @@ def _get_room(user_id: int) -> dict:
         return {"user_id": user_id, "upgrades": "", "last_collect": datetime.now(timezone.utc)}
 
 def _owned_upgrades(room: dict) -> set:
-    return set(filter(None, (room.get("upgrades") or "").split(",")))
+    # совместимость: "bed,desk" или "bed:2,desk:3" → множество id
+    out = set()
+    for part in (room.get("upgrades") or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        out.add(part.split(":")[0])
+    return out
 
-def _income_rates(owned: set) -> tuple[int, int]:
-    gold = sum(UPGRADES[u]["gold_per_hour"] for u in owned if u in UPGRADES)
-    xp   = sum(UPGRADES[u]["xp_per_hour"]   for u in owned if u in UPGRADES)
+def _upgrade_levels(room: dict) -> dict:
+    """Возвращает {upgrade_id: level}. Старый формат без уровня = уровень 1."""
+    levels = {}
+    for part in (room.get("upgrades") or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if ":" in part:
+            uid, lvl = part.split(":", 1)
+            try:
+                levels[uid] = int(lvl)
+            except Exception:
+                levels[uid] = 1
+        else:
+            levels[part] = 1
+    return levels
+
+MAX_UPGRADE_LEVEL = 5
+
+def _level_cost(base_price, level):
+    """Стоимость прокачки до следующего уровня (растёт)."""
+    return int(base_price * (1 + level * 0.8))
+
+def _income_rates(owned) -> tuple:
+    # owned может быть set (старое) или dict уровней
+    if isinstance(owned, dict):
+        gold = sum(UPGRADES[u]["gold_per_hour"] * lvl for u, lvl in owned.items() if u in UPGRADES)
+        xp   = sum(UPGRADES[u]["xp_per_hour"] * lvl for u, lvl in owned.items() if u in UPGRADES)
+    else:
+        gold = sum(UPGRADES[u]["gold_per_hour"] for u in owned if u in UPGRADES)
+        xp   = sum(UPGRADES[u]["xp_per_hour"]   for u in owned if u in UPGRADES)
     return gold, xp
 
-def _pending_income(room: dict) -> tuple[int, int, float]:
-    owned = _owned_upgrades(room)
-    gph, xph = _income_rates(owned)
+def _save_levels(user_id, levels):
+    s = ",".join(f"{uid}:{lvl}" for uid, lvl in levels.items())
+    with get_conn() as conn:
+        execute(conn, "UPDATE player_room SET upgrades=%s WHERE user_id=%s", s, user_id)
+
+def _pending_income(room: dict) -> tuple:
+    levels = _upgrade_levels(room)
+    gph, xph = _income_rates(levels)
     last = room.get("last_collect")
     if last and last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
