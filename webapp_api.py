@@ -3568,6 +3568,58 @@ async def handle_tower(request):
         return _cors(web.json_response({"error": "fail"}))
 
 
+async def handle_dungeon(request):
+    """Ежедневный данж: action = status | start | wave | won | failed."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "status")
+    from database import get_user
+    try:
+        from game import daily_dungeon as DG
+    except Exception as e:
+        logger.warning("dungeon import: %s", e)
+        return _cors(web.json_response({"error": "unavailable"}))
+    try:
+        user = get_user(user_id)
+        plvl = (user.get("level", 1) if user else 1) or 1
+        php = (user.get("max_hp", 100) if user else 100) or 100
+        duel_hp = int(100 + min(100, (php - 100) * 0.2))
+        if duel_hp < 100:
+            duel_hp = 100
+
+        if action == "start":
+            res = DG.start_run(user_id, duel_hp)
+            if not res.get("ok"):
+                return _cors(web.json_response(res))
+            enemy = DG.get_wave_enemy(1, plvl, duel_hp)
+            return _cors(web.json_response({"ok": True, "enemy": enemy, "wave": 1, "playerHp": duel_hp}))
+        elif action == "wave":
+            st = DG.get_status(user_id)
+            wave = st["currentWave"] if st["currentWave"] > 0 else 1
+            enemy = DG.get_wave_enemy(wave, plvl, duel_hp)
+            from database import get_conn, fetchrow
+            with get_conn() as conn:
+                row = fetchrow(conn, "SELECT current_hp FROM daily_dungeon WHERE user_id=%s", user_id)
+            hp = (row["current_hp"] if row and row["current_hp"] > 0 else duel_hp)
+            return _cors(web.json_response({"ok": True, "enemy": enemy, "wave": wave, "playerHp": hp}))
+        elif action == "won":
+            rem = int(body.get("hp", duel_hp))
+            return _cors(web.json_response(DG.wave_won(user_id, rem)))
+        elif action == "failed":
+            return _cors(web.json_response(DG.run_failed(user_id)))
+        else:  # status
+            return _cors(web.json_response(DG.get_status(user_id)))
+    except Exception as e:
+        logger.warning("dungeon %s: %s", action, e)
+        return _cors(web.json_response({"error": "fail"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3664,6 +3716,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/buffpotions", handle_options)
     app.router.add_post("/api/tower", handle_tower)
     app.router.add_options("/api/tower", handle_options)
+    app.router.add_post("/api/dungeon", handle_dungeon)
+    app.router.add_options("/api/dungeon", handle_options)
     app.router.add_post("/api/duelrank", handle_duelrank)
     app.router.add_options("/api/duelrank", handle_options)
     app.router.add_post("/api/pvpduel", handle_pvpduel)
