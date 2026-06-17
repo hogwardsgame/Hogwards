@@ -3673,6 +3673,100 @@ async def handle_battlepass(request):
         return _cors(web.json_response({"error": "fail"}))
 
 
+async def handle_tournament_bracket(request):
+    """Турнир: action = status | register | match | result."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "status")
+    from database import get_user
+    try:
+        from game import tournament_bracket as TB
+    except Exception as e:
+        logger.warning("tournament import: %s", e)
+        return _cors(web.json_response({"state": "idle"}))
+    try:
+        if action == "register":
+            user = get_user(user_id)
+            name = (user.get("wizard_name") if user else None) or "Игрок"
+            house = (user.get("house") if user else "") or ""
+            stats = {"atk": user.get("attack", 10) if user else 10,
+                     "def": user.get("defense", 5) if user else 5,
+                     "luck": user.get("luck", 5) if user else 5,
+                     "hp": user.get("max_hp", 100) if user else 100}
+            return _cors(web.json_response(TB.register(user_id, name, house, stats)))
+        elif action == "match":
+            m = TB.get_my_match(user_id)
+            return _cors(web.json_response({"match": m}))
+        elif action == "result":
+            won = bool(body.get("won", False))
+            return _cors(web.json_response(TB.report_result(user_id, won)))
+        else:
+            return _cors(web.json_response(TB.get_status(user_id)))
+    except Exception as e:
+        logger.warning("tournament %s: %s", action, e)
+        return _cors(web.json_response({"state": "idle", "ok": False}))
+
+
+async def handle_tournamentsolo(request):
+    """Турнир на выбывание: action = status | start | round | won | failed | champions."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "status")
+    from database import get_user
+    try:
+        from game import tournament_solo as TS
+    except Exception as e:
+        logger.warning("tournament import: %s", e)
+        return _cors(web.json_response({"error": "unavailable"}))
+    try:
+        user = get_user(user_id)
+        plvl = (user.get("level", 1) if user else 1) or 1
+        php = (user.get("max_hp", 100) if user else 100) or 100
+        duel_hp = int(100 + min(100, (php - 100) * 0.2))
+        if duel_hp < 100:
+            duel_hp = 100
+
+        if action == "start":
+            res = TS.start_run(user_id, duel_hp)
+            if not res.get("ok"):
+                return _cors(web.json_response(res))
+            opp = TS.get_round_opponent(1, plvl, duel_hp)
+            return _cors(web.json_response({"ok": True, "opponent": opp, "round": 1, "playerHp": duel_hp}))
+        elif action == "round":
+            st = TS.get_status(user_id)
+            rnd = st["currentRound"] if st["currentRound"] > 0 else 1
+            opp = TS.get_round_opponent(rnd, plvl, duel_hp)
+            from database import get_conn, fetchrow
+            with get_conn() as conn:
+                row = fetchrow(conn, "SELECT current_hp FROM tournament_runs WHERE user_id=%s", user_id)
+            hp = (row["current_hp"] if row and row["current_hp"] > 0 else duel_hp)
+            return _cors(web.json_response({"ok": True, "opponent": opp, "round": rnd, "playerHp": hp}))
+        elif action == "won":
+            rem = int(body.get("hp", duel_hp))
+            return _cors(web.json_response(TS.round_won(user_id, rem)))
+        elif action == "failed":
+            return _cors(web.json_response(TS.run_failed(user_id)))
+        elif action == "champions":
+            return _cors(web.json_response({"top": TS.get_champions(20)}))
+        else:
+            return _cors(web.json_response(TS.get_status(user_id)))
+    except Exception as e:
+        logger.warning("tournament %s: %s", action, e)
+        return _cors(web.json_response({"error": "fail"}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3773,6 +3867,10 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/dungeon", handle_options)
     app.router.add_post("/api/battlepass", handle_battlepass)
     app.router.add_options("/api/battlepass", handle_options)
+    app.router.add_post("/api/tournamentsolo", handle_tournamentsolo)
+    app.router.add_options("/api/tournamentsolo", handle_options)
+    app.router.add_post("/api/cuptournament", handle_tournament_bracket)
+    app.router.add_options("/api/cuptournament", handle_options)
     app.router.add_post("/api/duelrank", handle_duelrank)
     app.router.add_options("/api/duelrank", handle_options)
     app.router.add_post("/api/pvpduel", handle_pvpduel)
