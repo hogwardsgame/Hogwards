@@ -82,6 +82,13 @@ async def handle_profile(request):
     from database import get_user
     from utils.helpers import get_rank, xp_needed_for_level
 
+    # восстановление HP со временем
+    try:
+        from database import regen_hp
+        regen_hp(int(user_id))
+    except Exception:
+        pass
+
     user = get_user(int(user_id))
     if not user:
         return _cors(web.json_response({"registered": False}))
@@ -113,7 +120,7 @@ async def handle_profile(request):
         "rank":       rank,
         "level":      user.get("level", 1),
         "hp":         user.get("hp", 100),
-        "maxHp":      user.get("max_hp", 100),
+        "maxHp":      user.get("max_hp", 100) + max(0, (user.get("level", 1) - 1) * 3),
         "mana":       user.get("mana", 50),
         "maxMana":    user.get("max_mana", 50),
         "xp":         user.get("xp", 0),
@@ -157,6 +164,17 @@ async def handle_profile(request):
                          "dash": bb["dash"], "dashes": bb["dashes"]}
     except Exception:
         data["broom"] = {"id": "training", "name": "Учебная метла", "emoji": "🧹", "dash": 2, "dashes": 2}
+
+    # Активные длительные баффы (зелья на 3 часа)
+    try:
+        from game.buff_potions import get_active_long_buffs
+        active_buffs, buff_mult = get_active_long_buffs(user_id)
+        data["atk"] = int(data["atk"] * buff_mult["atk"])
+        data["def"] = int(data["def"] * buff_mult["def"])
+        data["luck"] = data.get("luck", 5) + int(buff_mult["luck_add"] * 100)
+        data["activeBuffs"] = active_buffs
+    except Exception:
+        data["activeBuffs"] = []
 
     # Моделька персонажа (эмодзи для дуэли)
     try:
@@ -3432,6 +3450,69 @@ async def handle_brooms(request):
         return _cors(web.json_response({"brooms": [], "ok": False, "msg": "Ошибка"}))
 
 
+async def handle_buffpotions(request):
+    """Зелья-баффы: action = list | brew | uselong | battlelist."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _cors(web.json_response({"error": "bad request"}, status=400))
+    tg_user = _verify_init_data(body.get("initData", ""))
+    if not tg_user or not tg_user.get("id"):
+        return _cors(web.json_response({"error": "unauthorized"}, status=401))
+    user_id = int(tg_user["id"])
+    action = body.get("action", "list")
+    try:
+        from game.buff_potions import (BATTLE_BUFFS, LONG_BUFFS, can_brew, brew,
+                                        get_buff_potions, use_long_buff, get_active_long_buffs)
+        from game.duel_bosses import get_ingredients, INGREDIENTS
+    except Exception as e:
+        logger.warning("buffpotions import: %s", e)
+        return _cors(web.json_response({"battle": [], "long": [], "ingredients": []}))
+    try:
+        if action == "brew":
+            pid = body.get("potion", "")
+            return _cors(web.json_response(brew(user_id, pid)))
+        elif action == "uselong":
+            pid = body.get("potion", "")
+            return _cors(web.json_response(use_long_buff(user_id, pid)))
+        elif action == "battlelist":
+            # боевые зелья игрока (для дуэли)
+            have = get_buff_potions(user_id)
+            out = []
+            for pid, cnt in have.items():
+                if pid in BATTLE_BUFFS and cnt > 0:
+                    b = BATTLE_BUFFS[pid]
+                    out.append({"id": pid, "name": b["name"], "emoji": b["emoji"],
+                                "desc": b["desc"], "count": cnt,
+                                "stat": b["stat"], "mult": b.get("mult"), "add": b.get("add"),
+                                "defMult": b.get("def_mult"), "turns": b.get("turns", 3)})
+            return _cors(web.json_response({"potions": out}))
+        else:  # list — зельеварение
+            have_ing = get_ingredients(user_id)
+            have_pot = get_buff_potions(user_id)
+            active, _ = get_active_long_buffs(user_id)
+            def _recipe_out(pid, r, is_long):
+                ings = []
+                for ing, qty in r["ingredients"].items():
+                    info = INGREDIENTS.get(ing, {})
+                    ings.append({"id": ing, "name": info.get("name", ing), "emoji": info.get("emoji", "🧪"),
+                                 "need": qty, "have": have_ing.get(ing, 0)})
+                ok, _m = can_brew(user_id, pid)
+                return {"id": pid, "name": r["name"], "emoji": r["emoji"], "desc": r["desc"],
+                        "ingredients": ings, "canBrew": ok, "owned": have_pot.get(pid, 0),
+                        "isLong": is_long}
+            battle = [_recipe_out(pid, r, False) for pid, r in BATTLE_BUFFS.items()]
+            long_ = [_recipe_out(pid, r, True) for pid, r in LONG_BUFFS.items()]
+            ing_list = [{"id": k, "name": INGREDIENTS.get(k, {}).get("name", k),
+                         "emoji": INGREDIENTS.get(k, {}).get("emoji", "🧪"), "count": v}
+                        for k, v in have_ing.items() if v > 0]
+            return _cors(web.json_response({"battle": battle, "long": long_,
+                                            "ingredients": ing_list, "activeBuffs": active}))
+    except Exception as e:
+        logger.warning("buffpotions %s: %s", action, e)
+        return _cors(web.json_response({"battle": [], "long": [], "ingredients": [], "ok": False}))
+
+
 def _build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_health)
@@ -3524,6 +3605,8 @@ def _build_app() -> web.Application:
     app.router.add_options("/api/cloaks", handle_options)
     app.router.add_post("/api/brooms", handle_brooms)
     app.router.add_options("/api/brooms", handle_options)
+    app.router.add_post("/api/buffpotions", handle_buffpotions)
+    app.router.add_options("/api/buffpotions", handle_options)
     app.router.add_post("/api/duelrank", handle_duelrank)
     app.router.add_options("/api/duelrank", handle_options)
     app.router.add_post("/api/pvpduel", handle_pvpduel)

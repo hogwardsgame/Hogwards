@@ -532,6 +532,30 @@ def get_user(user_id: int):
         return fetchrow(conn, "SELECT * FROM users WHERE user_id = %s", user_id)
 
 
+def regen_hp(user_id: int):
+    """Восстановление HP со временем: +1 HP в минуту (но не выше max_hp)."""
+    try:
+        with get_conn() as conn:
+            execute(conn, "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_hp_regen TIMESTAMPTZ DEFAULT NOW()")
+            row = fetchrow(conn, "SELECT hp, max_hp, EXTRACT(EPOCH FROM (NOW() - COALESCE(last_hp_regen, NOW()))) AS elapsed FROM users WHERE user_id=%s", user_id)
+            if not row:
+                return
+            hp = row["hp"] or 0
+            max_hp = row["max_hp"] or 100
+            elapsed = row["elapsed"] or 0
+            if hp >= max_hp:
+                # уже полное — просто обновим метку
+                execute(conn, "UPDATE users SET last_hp_regen=NOW() WHERE user_id=%s", user_id)
+                return
+            # +1 HP в минуту
+            regen = int(elapsed // 60)
+            if regen > 0:
+                new_hp = min(max_hp, hp + regen)
+                execute(conn, "UPDATE users SET hp=%s, last_hp_regen=NOW() WHERE user_id=%s", new_hp, user_id)
+    except Exception:
+        pass
+
+
 def user_exists(user_id: int) -> bool:
     return get_user(user_id) is not None
 
