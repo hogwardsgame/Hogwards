@@ -3345,6 +3345,11 @@ async def handle_castle(request):
         elif action == "move":
             direction = body.get("dir", "")
             return _cors(web.json_response(CM.move(user_id, direction)))
+        elif action == "winfight":
+            key = body.get("key", "")
+            return _cors(web.json_response(CM.win_fight(user_id, key)))
+        elif action == "losefight":
+            return _cors(web.json_response(CM.lose_fight(user_id)))
         else:
             st = CM.get_run(user_id)
             if not st:
