@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import threading
+import time
 from urllib.parse import parse_qsl
 
 from aiohttp import web
@@ -45,6 +46,63 @@ def _verify_init_data(init_data: str) -> dict | None:
         return None
 
 
+def _verify_login_widget(auth: dict) -> dict | None:
+    """Проверяет данные Telegram Login Widget (вход на сайте). Возвращает данные пользователя или None."""
+    if not auth or not BOT_TOKEN:
+        return None
+    try:
+        data = dict(auth)
+        received_hash = data.pop("hash", None)
+        if not received_hash:
+            return None
+        # строка проверки: все поля кроме hash, отсортированы, key=value через \n
+        pairs = []
+        for k in sorted(data.keys()):
+            v = data[k]
+            if v is None:
+                continue
+            pairs.append(f"{k}={v}")
+        data_check = "\n".join(pairs)
+        # секрет для Login Widget = SHA256(bot_token) (без "WebAppData"!)
+        secret = hashlib.sha256(BOT_TOKEN.encode()).digest()
+        calc_hash = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc_hash, str(received_hash)):
+            return None
+        # данные не старше 24ч
+        try:
+            if time.time() - int(data.get("auth_date", 0)) > 86400:
+                return None
+        except Exception:
+            pass
+        return {
+            "id": int(data["id"]),
+            "first_name": data.get("first_name", ""),
+            "last_name": data.get("last_name", ""),
+            "username": data.get("username", ""),
+            "photo_url": data.get("photo_url", ""),
+        }
+    except Exception as e:
+        logger.warning("login widget verify failed: %s", e)
+        return None
+
+
+def _get_user(body: dict) -> dict | None:
+    """Универсальная авторизация: Telegram Mini App (initData) ИЛИ сайт (webAuth)."""
+    # 1) Telegram Mini App
+    init_data = body.get("initData", "")
+    if init_data:
+        u = _verify_init_data(init_data)
+        if u:
+            return u
+    # 2) Сайт — Telegram Login Widget
+    web_auth = body.get("webAuth")
+    if web_auth and isinstance(web_auth, dict):
+        u = _verify_login_widget(web_auth)
+        if u:
+            return u
+    return None
+
+
 # Заголовки CORS (разрешаем запросы со страницы GitHub Pages)
 def _cors(resp: web.Response) -> web.Response:
     resp.headers["Access-Control-Allow-Origin"] = "*"
@@ -70,7 +128,7 @@ async def handle_profile(request):
         return _cors(web.json_response({"error": "bad request"}, status=400))
 
     init_data = body.get("initData", "")
-    tg_user = _verify_init_data(init_data)
+    tg_user = _get_user(body)
     if not tg_user:
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
 
@@ -342,7 +400,7 @@ async def handle_inventory(request):
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
 
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
 
@@ -414,7 +472,7 @@ async def handle_feed_pet(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
 
@@ -456,7 +514,7 @@ async def handle_claim_daily(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
 
@@ -497,7 +555,7 @@ async def handle_equip_best(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -518,7 +576,7 @@ async def handle_battle(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -550,7 +608,7 @@ async def handle_pet(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -632,7 +690,7 @@ async def handle_potions(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -757,7 +815,7 @@ async def handle_shop(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -834,7 +892,7 @@ async def handle_achievements(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -889,7 +947,7 @@ async def handle_pvp(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -917,7 +975,7 @@ async def handle_liveduel(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -965,7 +1023,7 @@ async def handle_league(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1027,7 +1085,7 @@ async def handle_quests(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1078,7 +1136,7 @@ async def handle_lessons(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1138,7 +1196,7 @@ async def handle_worldboss(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1228,7 +1286,7 @@ async def handle_tournament(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1284,7 +1342,7 @@ async def handle_teambattle(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1393,7 +1451,7 @@ async def handle_events(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     from datetime import datetime, timezone
@@ -1451,7 +1509,7 @@ async def handle_squad(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1560,7 +1618,7 @@ async def handle_trade(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1604,7 +1662,7 @@ async def handle_wandcraft(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1677,7 +1735,7 @@ async def handle_bank(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1737,7 +1795,7 @@ async def handle_explore(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1818,7 +1876,7 @@ async def handle_collections(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1880,7 +1938,7 @@ async def handle_titles(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1929,7 +1987,7 @@ async def handle_hogsmeade(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -1989,7 +2047,7 @@ async def handle_room(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2078,7 +2136,7 @@ async def handle_blackmarket(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2142,7 +2200,7 @@ async def handle_horcruxes(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2244,7 +2302,7 @@ async def handle_journal(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2283,7 +2341,7 @@ async def handle_settings(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2325,7 +2383,7 @@ async def handle_triwizard(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2413,7 +2471,7 @@ async def handle_war(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2455,7 +2513,7 @@ async def handle_auction(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2559,7 +2617,7 @@ async def handle_pubprofile(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     target_id = body.get("targetId")
@@ -2665,7 +2723,7 @@ async def handle_abilities(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2736,7 +2794,7 @@ async def handle_arena_reward(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2852,7 +2910,7 @@ async def handle_carddeck(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2891,7 +2949,7 @@ async def handle_cardcollection(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -2940,7 +2998,7 @@ async def handle_cloaks(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3005,7 +3063,7 @@ async def handle_duelrank(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3059,7 +3117,7 @@ async def handle_pvpduel(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3118,7 +3176,7 @@ async def handle_characters(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3164,7 +3222,7 @@ async def handle_setmodel(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3196,7 +3254,7 @@ async def handle_duelpotion(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3244,7 +3302,7 @@ async def handle_duelboss(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3329,7 +3387,7 @@ async def handle_castle(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3366,7 +3424,7 @@ async def handle_chat(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3412,7 +3470,7 @@ async def handle_castleevent(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     try:
@@ -3433,7 +3491,7 @@ async def handle_brooms(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3497,7 +3555,7 @@ async def handle_buffpotions(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3565,7 +3623,7 @@ async def handle_tower(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3615,7 +3673,7 @@ async def handle_dungeon(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3667,7 +3725,7 @@ async def handle_battlepass(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3694,7 +3752,7 @@ async def handle_tournament_bracket(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
@@ -3734,7 +3792,7 @@ async def handle_tournamentsolo(request):
         body = await request.json()
     except Exception:
         return _cors(web.json_response({"error": "bad request"}, status=400))
-    tg_user = _verify_init_data(body.get("initData", ""))
+    tg_user = _get_user(body)
     if not tg_user or not tg_user.get("id"):
         return _cors(web.json_response({"error": "unauthorized"}, status=401))
     user_id = int(tg_user["id"])
