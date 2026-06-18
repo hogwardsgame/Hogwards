@@ -10,7 +10,7 @@ import random
 import json
 import time
 
-SIZE = 13
+SIZE = 17
 
 EMPTY = 0
 WALL = 1
@@ -71,7 +71,10 @@ def _roll_loot():
 def _gen_floor(depth):
     size = SIZE
     grid = [[WALL for _ in range(size)] for _ in range(size)]
+    # Лабиринт на «толстых» стенах: ячейки на нечётных координатах, стены между ними.
     sr, sc = size - 2, size // 2
+    if sr % 2 == 0: sr -= 1
+    if sc % 2 == 0: sc -= 1
     visited = set()
     stack = [(sr, sc)]
     grid[sr][sc] = EMPTY
@@ -79,23 +82,31 @@ def _gen_floor(depth):
     while stack:
         r, c = stack[-1]
         neighbors = []
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        # шаг 2 — между ячейками остаётся стена
+        for dr, dc in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
             nr, nc = r + dr, c + dc
             if 1 <= nr < size - 1 and 1 <= nc < size - 1 and (nr, nc) not in visited:
-                neighbors.append((nr, nc))
+                neighbors.append((nr, nc, dr, dc))
         if neighbors:
-            nr, nc = random.choice(neighbors)
+            nr, nc, dr, dc = random.choice(neighbors)
+            # пробиваем стену между текущей и новой ячейкой
+            grid[r + dr // 2][c + dc // 2] = EMPTY
             grid[nr][nc] = EMPTY
             visited.add((nr, nc))
             stack.append((nr, nc))
         else:
             stack.pop()
+    # немного «петель» — убираем часть стен, чтобы не было тупиковости (но лабиринт сохраняется)
+    loop_chance = 0.08
     for r in range(1, size - 1):
         for c in range(1, size - 1):
-            if grid[r][c] == WALL and random.random() < 0.10:
-                grid[r][c] = EMPTY
-    # вырезаем несколько открытых комнат (как в рогалике)
-    n_rooms = random.randint(2, 4)
+            if grid[r][c] == WALL and random.random() < loop_chance:
+                # убираем стену только если она между двумя проходами
+                if (grid[r-1][c] == EMPTY and grid[r+1][c] == EMPTY) or (grid[r][c-1] == EMPTY and grid[r][c+1] == EMPTY):
+                    grid[r][c] = EMPTY
+                    visited.add((r, c))
+    # пара небольших комнат для разнообразия
+    n_rooms = random.randint(1, 3)
     for _ in range(n_rooms):
         rh = random.randint(2, 3); rw = random.randint(2, 3)
         rr = random.randint(1, size - rh - 1); rc = random.randint(1, size - rw - 1)
@@ -114,7 +125,6 @@ def _gen_floor(depth):
     is_boss_floor = (depth % 10 == 0)
     monsters = {}
     if is_boss_floor:
-        # один мощный босс на этаже
         bidx = min(len(BOSSES) - 1, depth // 10 - 1)
         b = BOSSES[bidx]
         hp = int(b["hp"] * (1 + (depth // 10 - 1) * 0.3))
@@ -123,11 +133,10 @@ def _gen_floor(depth):
             r, c = free[idx]; idx += 1
             monsters[f"{r},{c}"] = {"name": b["name"], "emoji": b["emoji"], "hp": hp, "maxHp": hp, "dmg": dmg, "isBoss": True}
     else:
-        # формула: 1-4 этаж = 2-3 монстра, с 5-го +1, дальше каждые 4 этажа +1
-        base = 2 + random.randint(0, 1)            # 2-3 на старте
+        base = 2 + random.randint(0, 1)
         bonus = 0
         if depth >= 5:
-            bonus = 1 + max(0, (depth - 5) // 4)   # +1 с 5-го, далее каждые 4 этажа +1
+            bonus = 1 + max(0, (depth - 5) // 4)
         n_monsters = min(len(free), base + bonus)
         for _ in range(n_monsters):
             if idx >= len(free):
@@ -181,13 +190,29 @@ def _build_state(depth, hp, max_hp, gold_found=0, items_found=None, atk=12):
                 event_cell = f"{er},{ec}"
     except Exception:
         pass
-    return {
+    state = {
         "grid": grid, "pr": sr, "pc": sc, "size": SIZE, "depth": depth,
         "loot": loot_cells, "monsters": monsters, "collected": [], "trapsSprung": [],
         "hp": hp, "maxHp": max_hp, "atk": atk,
         "gold_found": gold_found, "items_found": items_found or [],
         "done": False, "moves": 0, "eventCell": event_cell,
+        "explored": [],
     }
+    _reveal(state, sr, sc)
+    return state
+
+
+def _reveal(state, r, c, radius=2):
+    """Открыть клетки вокруг (r,c) в радиусе. Туман войны."""
+    explored = set(state.get("explored", []))
+    size = state["size"]
+    for dr in range(-radius, radius + 1):
+        for dc in range(-radius, radius + 1):
+            if abs(dr) + abs(dc) <= radius + 1:
+                rr, cc = r + dr, c + dc
+                if 0 <= rr < size and 0 <= cc < size:
+                    explored.add(f"{rr},{cc}")
+    state["explored"] = list(explored)
 
 
 def new_run(user_id: int):
@@ -213,11 +238,15 @@ def new_run(user_id: int):
 
 def _client_state(state):
     size = state["size"]
+    explored = set(state.get("explored", []))
     vis = []
     for r in range(size):
         row = []
         for c in range(size):
             key = f"{r},{c}"
+            if explored and key not in explored:
+                row.append(-1)  # туман войны
+                continue
             cell = state["grid"][r][c]
             if key in state["collected"] and cell == LOOT:
                 cell = EMPTY
@@ -225,6 +254,8 @@ def _client_state(state):
         vis.append(row)
     mons = []
     for key, m in state.get("monsters", {}).items():
+        if explored and key not in explored:
+            continue  # монстр в тумане не виден
         rr, cc = key.split(",")
         mons.append({"r": int(rr), "c": int(cc), "emoji": m["emoji"],
                      "name": m["name"], "hp": m["hp"], "maxHp": m["maxHp"]})
@@ -233,6 +264,7 @@ def _client_state(state):
         "hp": state["hp"], "maxHp": state["maxHp"], "depth": state["depth"],
         "goldFound": state["gold_found"], "monsters": mons,
         "itemsFound": state["items_found"], "done": state["done"], "moves": state["moves"],
+        "monstersTotal": len(state.get("monsters", {})),
     }
 
 
@@ -273,6 +305,7 @@ def move(user_id: int, direction: str):
 
         state["pr"], state["pc"] = nr, nc
         state["moves"] += 1
+        _reveal(state, nr, nc)
         cell = state["grid"][nr][nc]
 
         if cell == LOOT and key not in state["collected"]:
@@ -355,6 +388,7 @@ def win_fight(user_id: int, key: str):
             try:
                 rr, cc = key.split(",")
                 state["pr"], state["pc"] = int(rr), int(cc)
+                _reveal(state, int(rr), int(cc))
             except Exception:
                 pass
             del monsters[key]
