@@ -10,7 +10,7 @@ import random
 import json
 import time
 
-SIZE = 17
+SIZE = 11
 
 EMPTY = 0
 WALL = 1
@@ -202,7 +202,7 @@ def _build_state(depth, hp, max_hp, gold_found=0, items_found=None, atk=12):
     return state
 
 
-def _reveal(state, r, c, radius=2):
+def _reveal(state, r, c, radius=3):
     """Открыть клетки вокруг (r,c) в радиусе. Туман войны."""
     explored = set(state.get("explored", []))
     size = state["size"]
