@@ -103,10 +103,6 @@ def _gen_floor(depth):
             for c in range(rc, rc + rw):
                 grid[r][c] = EMPTY
                 visited.add((r, c))
-    for r in range(1, size - 1):
-        for c in range(1, size - 1):
-            if grid[r][c] == EMPTY and random.random() < 0.12 and (r, c) != (sr, sc):
-                grid[r][c] = GRASS
     grid[sr][sc] = START
     free = [(r, c) for (r, c) in visited if grid[r][c] in (EMPTY, GRASS) and (r, c) != (sr, sc)]
     free.sort(key=lambda p: -((p[0] - sr) ** 2 + (p[1] - sc) ** 2))
@@ -303,6 +299,14 @@ def move(user_id: int, direction: str):
                 state["done"] = True
                 event = {"event": "dead", "damage": dmg}
         elif cell == STAIRS:
+            # нельзя спуститься, пока на этаже есть монстры
+            if state.get("monsters"):
+                state["pr"], state["pc"] = nr, nc
+                execute(conn, "UPDATE castle_runs SET state=%s WHERE user_id=%s", json.dumps(state), user_id)
+                out = _client_state(state)
+                out["event"] = "stairsBlocked"
+                out["monstersLeft"] = len(state["monsters"])
+                return out
             depth = state["depth"] + 1
             bonus = 50 + depth * 20
             _give_gold(user_id, bonus)
