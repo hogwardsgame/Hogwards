@@ -23,12 +23,18 @@ def ensure_event_table():
                 prize_qty INT DEFAULT 1,
                 prize_name TEXT,
                 prize_emoji TEXT,
+                prize_floor INT DEFAULT 1,
                 started_at DOUBLE PRECISION,
                 ends_at DOUBLE PRECISION,
                 winner_id BIGINT,
                 winner_name TEXT
             )
         """)
+        # миграция: добавить prize_floor если таблица старая
+        try:
+            execute(conn, "ALTER TABLE castle_event ADD COLUMN IF NOT EXISTS prize_floor INT DEFAULT 1")
+        except Exception:
+            pass
 
 
 def get_active_event():
@@ -52,27 +58,32 @@ def get_active_event():
     return {
         "active": True, "prizeItem": row["prize_item"], "prizeQty": row["prize_qty"],
         "prizeName": row["prize_name"], "prizeEmoji": row["prize_emoji"],
+        "prizeFloor": row["prize_floor"] if "prize_floor" in row and row["prize_floor"] else 1,
         "endsAt": row["ends_at"], "timeLeft": int(row["ends_at"] - time.time()),
     }
 
 
-def start_event(prize_item, prize_qty, prize_name, prize_emoji):
-    """Запустить ивент (вызывается админом)."""
+def start_event(prize_item, prize_qty, prize_name, prize_emoji, prize_floor=1):
+    """Запустить ивент (вызывается админом). prize_floor — на каком этаже спрятан приз."""
     ensure_event_table()
     from database import get_conn, execute
     now = time.time()
     ends = now + EVENT_DURATION
+    try:
+        prize_floor = max(1, int(prize_floor))
+    except Exception:
+        prize_floor = 1
     with get_conn() as conn:
-        execute(conn, """INSERT INTO castle_event (id, active, prize_item, prize_qty, prize_name, prize_emoji, started_at, ends_at, winner_id, winner_name)
-                         VALUES (1, TRUE, %s, %s, %s, %s, %s, %s, NULL, NULL)
+        execute(conn, """INSERT INTO castle_event (id, active, prize_item, prize_qty, prize_name, prize_emoji, prize_floor, started_at, ends_at, winner_id, winner_name)
+                         VALUES (1, TRUE, %s, %s, %s, %s, %s, %s, %s, NULL, NULL)
                          ON CONFLICT (id) DO UPDATE SET active=TRUE, prize_item=%s, prize_qty=%s,
-                         prize_name=%s, prize_emoji=%s, started_at=%s, ends_at=%s, winner_id=NULL, winner_name=NULL""",
-                prize_item, prize_qty, prize_name, prize_emoji, now, ends,
-                prize_item, prize_qty, prize_name, prize_emoji, now, ends)
+                         prize_name=%s, prize_emoji=%s, prize_floor=%s, started_at=%s, ends_at=%s, winner_id=NULL, winner_name=NULL""",
+                prize_item, prize_qty, prize_name, prize_emoji, prize_floor, now, ends,
+                prize_item, prize_qty, prize_name, prize_emoji, prize_floor, now, ends)
     # анонс в чат
     try:
         from game.world_chat import system_message
-        system_message(f"🎪 ИВЕНТ НАЧАЛСЯ! В замке 🏰 спрятан приз: {prize_emoji} {prize_name}! Кто первый найдёт — забирает! У вас 3 часа. (Мир → Замок)")
+        system_message(f"🎪 ИВЕНТ НАЧАЛСЯ! В замке 🏰 на этаже {prize_floor} спрятан приз: {prize_emoji} {prize_name}! Кто первый найдёт — забирает! У вас 3 часа. (Мир → Замок)")
     except Exception:
         pass
     return {"ok": True}

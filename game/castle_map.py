@@ -10,7 +10,7 @@ import random
 import json
 import time
 
-SIZE = 9
+SIZE = 13
 
 EMPTY = 0
 WALL = 1
@@ -33,6 +33,15 @@ MONSTERS = [
     {"name": "Орк", "emoji": "👹", "hp": 70, "dmg": 18},
     {"name": "Голем", "emoji": "🗿", "hp": 100, "dmg": 16},
     {"name": "Демон", "emoji": "😈", "hp": 90, "dmg": 22},
+]
+
+# Боссы для каждого 10-го этажа (по глубине)
+BOSSES = [
+    {"name": "Тёмный рыцарь", "emoji": "🛡️", "hp": 200, "dmg": 25},
+    {"name": "Король скелетов", "emoji": "👑", "hp": 280, "dmg": 30},
+    {"name": "Древний дракон", "emoji": "🐉", "hp": 380, "dmg": 36},
+    {"name": "Повелитель тьмы", "emoji": "💀", "hp": 500, "dmg": 42},
+    {"name": "Владыка бездны", "emoji": "👁️", "hp": 650, "dmg": 50},
 ]
 
 LOOT_TABLE = [
@@ -83,8 +92,17 @@ def _gen_floor(depth):
             stack.pop()
     for r in range(1, size - 1):
         for c in range(1, size - 1):
-            if grid[r][c] == WALL and random.random() < 0.14:
+            if grid[r][c] == WALL and random.random() < 0.10:
                 grid[r][c] = EMPTY
+    # вырезаем несколько открытых комнат (как в рогалике)
+    n_rooms = random.randint(2, 4)
+    for _ in range(n_rooms):
+        rh = random.randint(2, 3); rw = random.randint(2, 3)
+        rr = random.randint(1, size - rh - 1); rc = random.randint(1, size - rw - 1)
+        for r in range(rr, rr + rh):
+            for c in range(rc, rc + rw):
+                grid[r][c] = EMPTY
+                visited.add((r, c))
     for r in range(1, size - 1):
         for c in range(1, size - 1):
             if grid[r][c] == EMPTY and random.random() < 0.12 and (r, c) != (sr, sc):
@@ -97,16 +115,32 @@ def _gen_floor(depth):
     free = free[1:]
     random.shuffle(free)
     idx = 0
-    n_monsters = min(len(free), 2 + depth // 2 + random.randint(0, 2))
+    is_boss_floor = (depth % 10 == 0)
     monsters = {}
-    for _ in range(n_monsters):
-        if idx >= len(free):
-            break
-        r, c = free[idx]; idx += 1
-        mtype = MONSTERS[min(len(MONSTERS) - 1, (depth - 1) // 2 + random.randint(0, 2))]
-        hp = int(mtype["hp"] * (1 + depth * 0.15))
-        dmg = int(mtype["dmg"] * (1 + depth * 0.1))
-        monsters[f"{r},{c}"] = {"name": mtype["name"], "emoji": mtype["emoji"], "hp": hp, "maxHp": hp, "dmg": dmg}
+    if is_boss_floor:
+        # один мощный босс на этаже
+        bidx = min(len(BOSSES) - 1, depth // 10 - 1)
+        b = BOSSES[bidx]
+        hp = int(b["hp"] * (1 + (depth // 10 - 1) * 0.3))
+        dmg = int(b["dmg"] * (1 + (depth // 10 - 1) * 0.2))
+        if free:
+            r, c = free[idx]; idx += 1
+            monsters[f"{r},{c}"] = {"name": b["name"], "emoji": b["emoji"], "hp": hp, "maxHp": hp, "dmg": dmg, "isBoss": True}
+    else:
+        # формула: 1-4 этаж = 2-3 монстра, с 5-го +1, дальше каждые 4 этажа +1
+        base = 2 + random.randint(0, 1)            # 2-3 на старте
+        bonus = 0
+        if depth >= 5:
+            bonus = 1 + max(0, (depth - 5) // 4)   # +1 с 5-го, далее каждые 4 этажа +1
+        n_monsters = min(len(free), base + bonus)
+        for _ in range(n_monsters):
+            if idx >= len(free):
+                break
+            r, c = free[idx]; idx += 1
+            mtype = MONSTERS[min(len(MONSTERS) - 1, (depth - 1) // 2 + random.randint(0, 2))]
+            hp = int(mtype["hp"] * (1 + depth * 0.15))
+            dmg = int(mtype["dmg"] * (1 + depth * 0.1))
+            monsters[f"{r},{c}"] = {"name": mtype["name"], "emoji": mtype["emoji"], "hp": hp, "maxHp": hp, "dmg": dmg}
     loot_cells = {}
     n_loot = min(max(0, len(free) - idx), 3 + depth // 3 + random.randint(0, 2))
     for _ in range(n_loot):
@@ -139,18 +173,18 @@ def ensure_castle_table():
 def _build_state(depth, hp, max_hp, gold_found=0, items_found=None, atk=12):
     grid, sr, sc, loot_cells, monsters, stairs = _gen_floor(depth)
     event_cell = None
-    if depth == 1:
-        try:
-            from game.castle_event import is_event_active
-            if is_event_active():
-                free = [(r, c) for r in range(1, SIZE - 1) for c in range(1, SIZE - 1)
-                        if grid[r][c] in (EMPTY, GRASS) and not (r == sr and c == sc)]
-                if free:
-                    er, ec = random.choice(free)
-                    grid[er][ec] = EVENT_PRIZE
-                    event_cell = f"{er},{ec}"
-        except Exception:
-            pass
+    try:
+        from game.castle_event import get_active_event
+        ev = get_active_event()
+        if ev and ev.get("prizeFloor", 1) == depth:
+            free = [(r, c) for r in range(1, SIZE - 1) for c in range(1, SIZE - 1)
+                    if grid[r][c] in (EMPTY, GRASS) and not (r == sr and c == sc)]
+            if free:
+                er, ec = random.choice(free)
+                grid[er][ec] = EVENT_PRIZE
+                event_cell = f"{er},{ec}"
+    except Exception:
+        pass
     return {
         "grid": grid, "pr": sr, "pc": sc, "size": SIZE, "depth": depth,
         "loot": loot_cells, "monsters": monsters, "collected": [], "trapsSprung": [],
@@ -230,27 +264,15 @@ def move(user_id: int, direction: str):
         key = f"{nr},{nc}"
         monsters = state.get("monsters", {})
         if key in monsters:
+            # встреча с монстром → магдуэль (бой в отдельном оверлее)
             m = monsters[key]
-            pdmg = state.get("atk", 12) + random.randint(-3, 4)
-            m["hp"] -= max(1, pdmg)
-            if m["hp"] <= 0:
-                del monsters[key]
-                state["pr"], state["pc"] = nr, nc
-                state["moves"] += 1
-                event = {"event": "kill", "monster": m["name"], "emoji": m["emoji"], "dmg": pdmg}
-            else:
-                mdmg = m["dmg"] + random.randint(-2, 3)
-                state["hp"] = max(0, state["hp"] - max(1, mdmg))
-                monsters[key] = m
-                event = {"event": "fight", "monster": m["name"], "emoji": m["emoji"],
-                         "playerDmg": pdmg, "monsterDmg": mdmg, "monsterHp": m["hp"], "monsterMaxHp": m["maxHp"]}
-                if state["hp"] <= 0:
-                    state["done"] = True
-                    event = {"event": "dead", "monster": m["name"]}
-            state["monsters"] = monsters
-            execute(conn, "UPDATE castle_runs SET state=%s WHERE user_id=%s", json.dumps(state), user_id)
             out = _client_state(state)
-            out.update(event)
+            out["event"] = "encounter"
+            out["monster"] = {
+                "key": key, "name": m["name"], "emoji": m["emoji"],
+                "hp": m["maxHp"], "dmg": m.get("dmg", 12),
+                "isBoss": m.get("isBoss", False), "depth": state["depth"],
+            }
             return out
 
         state["pr"], state["pc"] = nr, nc
@@ -310,6 +332,57 @@ def move(user_id: int, direction: str):
         execute(conn, "UPDATE castle_runs SET state=%s WHERE user_id=%s", json.dumps(state), user_id)
     out = _client_state(state)
     out.update(event)
+    return out
+
+
+def win_fight(user_id: int, key: str):
+    """Победа в дуэли над монстром: убираем его, игрок занимает клетку."""
+    ensure_castle_table()
+    from database import get_conn, fetchrow, execute
+    with get_conn() as conn:
+        row = fetchrow(conn, "SELECT state FROM castle_runs WHERE user_id=%s", user_id)
+        if not row:
+            return {"error": "norun"}
+        state = json.loads(row["state"])
+        monsters = state.get("monsters", {})
+        was_boss = False
+        if key in monsters:
+            was_boss = monsters[key].get("isBoss", False)
+            try:
+                rr, cc = key.split(",")
+                state["pr"], state["pc"] = int(rr), int(cc)
+            except Exception:
+                pass
+            del monsters[key]
+            state["monsters"] = monsters
+            state["moves"] += 1
+        # награда за убийство (золото)
+        reward = 20 + state["depth"] * 8
+        if was_boss:
+            reward = 200 + state["depth"] * 25
+        _give_gold(user_id, reward)
+        state["gold_found"] += reward
+        execute(conn, "UPDATE castle_runs SET state=%s WHERE user_id=%s", json.dumps(state), user_id)
+    out = _client_state(state)
+    out["event"] = "kill"
+    out["reward"] = reward
+    out["wasBoss"] = was_boss
+    return out
+
+
+def lose_fight(user_id: int):
+    """Поражение в дуэли — конец забега."""
+    ensure_castle_table()
+    from database import get_conn, fetchrow, execute
+    with get_conn() as conn:
+        row = fetchrow(conn, "SELECT state FROM castle_runs WHERE user_id=%s", user_id)
+        if not row:
+            return {"error": "norun"}
+        state = json.loads(row["state"])
+        state["done"] = True
+        execute(conn, "UPDATE castle_runs SET state=%s WHERE user_id=%s", json.dumps(state), user_id)
+    out = _client_state(state)
+    out["event"] = "dead"
     return out
 
 

@@ -198,9 +198,10 @@ def handle_admin_command(admin_id, text):
             system_message("📢 " + msg)
             return {"ok": True, "msg": "Объявление отправлено", "silent": True}
         elif cmd == "/event" and len(parts) >= 2:
-            # /event <item_id> [кол-во] — спрятать приз в замке и запустить ивент
+            # /event <item_id> [кол-во] [этаж] — спрятать приз в замке на этаже
             item_id = parts[1]
-            qty = int(parts[2]) if len(parts) >= 3 else 1
+            qty = int(parts[2]) if len(parts) >= 3 and parts[2].isdigit() else 1
+            floor = int(parts[3]) if len(parts) >= 4 and parts[3].isdigit() else 1
             try:
                 from game.items import ITEMS
                 item = ITEMS.get(item_id)
@@ -213,13 +214,22 @@ def handle_admin_command(admin_id, text):
             except Exception:
                 pname = item_id; pemoji = "🎁"
             from game.castle_event import start_event
-            start_event(item_id, qty, pname, pemoji)
-            return {"ok": True, "msg": f"🎪 Ивент запущен! Приз: {pemoji} {pname} x{qty}", "silent": True}
+            start_event(item_id, qty, pname, pemoji, floor)
+            return {"ok": True, "msg": f"🎪 Ивент запущен! Приз: {pemoji} {pname} x{qty} на этаже {floor}", "silent": True}
         elif cmd == "/clear":
             from database import get_conn, execute
             with get_conn() as conn:
                 execute(conn, "DELETE FROM world_chat")
             return {"ok": True, "msg": "Чат очищен", "silent": True}
+        elif cmd == "/tournament":
+            try:
+                from game.tournament_bracket import handle_admin_tournament_command
+                res = handle_admin_tournament_command(admin_id, text)
+                if res:
+                    return {"ok": res.get("ok", False), "msg": res.get("msg", ""), "silent": True}
+            except Exception as e:
+                return {"ok": False, "msg": f"Ошибка: {e}"}
+            return {"ok": False, "msg": "/tournament open [приз] | start | close"}
         else:
             return {"ok": False, "msg": "Команды: /gold /item /badge /say /clear"}
     except Exception as e:
