@@ -143,16 +143,10 @@ def ensure_castle_table():
             user_id BIGINT PRIMARY KEY, state TEXT, started_at DOUBLE PRECISION)""")
 
 
-def _reveal(state, r, c, radius=3):
-    explored = set(state.get("explored", []))
+def _reveal(state, r, c, radius=99):
+    # туман отключён — вся карта видна
     size = state["size"]
-    for dr in range(-radius, radius + 1):
-        for dc in range(-radius, radius + 1):
-            if abs(dr) + abs(dc) <= radius + 1:
-                rr, cc = r + dr, c + dc
-                if 0 <= rr < size and 0 <= cc < size:
-                    explored.add(f"{rr},{cc}")
-    state["explored"] = list(explored)
+    state["explored"] = [f"{rr},{cc}" for rr in range(size) for cc in range(size)]
 
 
 def _build_state(depth, max_hp, gold_found=0, items_found=None, atk=12):
@@ -238,13 +232,9 @@ def move(user_id, direction):
         if not row:
             return {"error": "norun"}
         state = json.loads(row["state"])
-        # совместимость: старый забег другого размера → новый
+        # старый забег другого размера → нужен новый (но НЕ на каждый ход)
         if state.get("size") != SIZE:
-            state = _build_state(1, state.get("maxHp", 100))
-            execute(conn, "UPDATE castle_runs SET state=%s WHERE user_id=%s", json.dumps(state), user_id)
-            out = _client_state(state)
-            out["event"] = "move"
-            return out
+            return {"event": "needRestart"}
         if state.get("done"):
             out = _client_state(state); out["event"] = "done"; return out
         size = state["size"]
