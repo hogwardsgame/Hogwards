@@ -1160,9 +1160,16 @@ async def handle_lessons(request):
                 return _cors(web.json_response({"error": "no_questions"}))
             idx = _rnd.randrange(len(pool))
             q = pool[idx]
-            _lesson_api_sessions[user_id] = {"subject": subject, "idx": idx, "answer": q["answer"]}
+            # перемешиваем варианты, запоминаем где оказался правильный
+            opts = list(q["options"])
+            correct_text = opts[q["answer"]]
+            order = list(range(len(opts)))
+            _rnd.shuffle(order)
+            shuffled = [opts[i] for i in order]
+            new_answer = shuffled.index(correct_text)
+            _lesson_api_sessions[user_id] = {"subject": subject, "idx": idx, "answer": new_answer}
             return _cors(web.json_response({
-                "question": q["q"], "options": q["options"],
+                "question": q["q"], "options": shuffled,
                 "subject": SUBJECTS_INFO.get(subject, {}).get("name", ""),
             }))
         elif action == "answer":
